@@ -7,6 +7,8 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWith
 import { initializeApp, getApps } from "firebase/app";
 import { collection, addDoc, getDocs, query, serverTimestamp, doc, getDoc, setDoc, where, updateDoc, increment, deleteDoc } from "firebase/firestore";
 
+import generatePayload from 'promptpay-qr';
+
 // 🔥 สมองกล Advanced Parser ตัวเทพ
 const extractOrderData = (rawText) => {
   if (!rawText) return null;
@@ -111,12 +113,13 @@ export default function App() {
   const [orders, setOrders] = useState([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }]);
   const labelRefs = useRef({});
 
-  const [storeProfile, setStoreProfile] = useState({ name: 'ToppySmart Logistics', phone: '087-448-4448', address: '123/48 ม.5 ต.หอรัตนไชย อ.พระนครศรีอยุธยา' });
+  const [storeProfile, setStoreProfile] = useState({ name: '', phone: '', address: '' });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [tempProfile, setTempProfile] = useState({ ...storeProfile });
 
   const [historyOrders, setHistoryOrders] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedDate, setSelectedDate] = useState(null); // 🔥 เก็บค่าว่ากำลังคลิกดูสถิติของวันไหน
   const [reprintOrder, setReprintOrder] = useState(null);
 
   const [dashboardStats, setDashboardStats] = useState({ totalOrders: 0, codOrders: 0, totalCodAmount: 0, pieData: [], barData: [] });
@@ -128,6 +131,10 @@ export default function App() {
   // 🔥 State ใหม่สำหรับเก็บข้อมูลร้านค้าทั้งหมด (SuperAdmin)
   const [allShops, setAllShops] = useState([]);
 
+  // 🔥 State สำหรับคู่มือการใช้งาน (Onboarding Tutorial)
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
@@ -135,11 +142,18 @@ export default function App() {
         try {
           const userRef = doc(db, "users", currentUser.uid);
           const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
+            if (userSnap.exists()) {
             const data = userSnap.data();
             setUserRole(data.role); setQuota(data.quota || 0); setUserOwnerId(data.ownerId || currentUser.uid);
-            // 🔥 ถ้าเป็น SuperAdmin ให้บังคับเปิดหน้า shops เป็นหน้าแรก
             if(data.role === 'SuperAdmin') setActiveTab('shops');
+            
+            // 🔥 ถ้าเครื่องนี้ยังไม่มีโปรไฟล์ ให้ดึงชื่อร้านตอนสมัครจาก Firestore มาใส่เป็นค่าเริ่มต้น
+            if (!localStorage.getItem('smartlabel_profile') && data.storeName) {
+              setStoreProfile({ name: data.storeName, phone: '', address: '' });
+            }
+            if (!localStorage.getItem(`has_seen_tutorial_${currentUser.uid}`) && data.role === 'Owner') {
+              setShowTutorial(true);
+            }
           } else {
             await setDoc(userRef, { email: currentUser.email, role: 'Owner', quota: 20, ownerId: currentUser.uid, createdAt: serverTimestamp() });
             setUserRole('Owner'); setQuota(20); setUserOwnerId(currentUser.uid); 
@@ -358,12 +372,45 @@ export default function App() {
   const handleEditHistory = (order) => { setOrders([{ id: Date.now(), rawText: order.rawText || '', parsedData: extractOrderData(order.rawText || ''), isSaved: false, crmSuggestion: null }, { id: Date.now() + 1, rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }]); setActiveTab('maker'); window.scrollTo(0, 0); };
   const handleReprintHistory = (order) => { setReprintOrder(order); setTimeout(() => { window.print(); setReprintOrder(null); }, 300); };
   
+// 🔥 ระบบกรองข้อมูลอัจฉริยะ (กรองตามวันที่คลิก และ คำค้นหา)
+  const filteredOrders = historyOrders.filter(order => {
+    // 1. กรองตามวันที่กดจากกราฟแท่ง
+    if (selectedDate) {
+      const orderDate = order.createdAt?.toDate().toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+      if (orderDate !== selectedDate) return false;
+    }
+    // 2. กรองตามช่องค้นหา (ชื่อ, เบอร์, ปณ, Tracking)
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const trackRef = `REF-${order.id.slice(-6).toUpperCase()}`.toLowerCase();
+      return (
+        (order.customerName || '').toLowerCase().includes(q) ||
+        (order.phone || '').includes(q) ||
+        (order.zipcode || '').includes(q) ||
+        trackRef.includes(q)
+      );
+    }
+    return true;
+  });
+
   const handleExportCSV = () => {
-    if (historyOrders.length === 0) return alert("ไม่มีข้อมูลให้ดาวน์โหลดครับ");
-    const headers = ["วันที่สร้าง", "เลขอ้างอิง", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "รหัสไปรษณีย์", "รายการสินค้า", "ยอด COD", "แอดมิน"];
-    const csvRows = historyOrders.map(order => [ order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH') : '-', `REF-${order.id.slice(-6).toUpperCase()}`, `"${order.customerName || ''}"`, order.phone || '-', `"${order.address || ''}"`, order.zipcode || '-', `"${(order.items || []).join(' | ')}"`, order.isCOD ? order.codAmount : "0", order.adminEmail || '-' ].join(','));
+    if (filteredOrders.length === 0) return alert("ไม่มีข้อมูลให้ดาวน์โหลดครับ");
+    const headers = ["วันที่สร้าง", "หมายเลขพัสดุ", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "รหัสไปรษณีย์", "รายการสินค้า", "ยอด COD", "แอดมิน"];
+    const csvRows = filteredOrders.map(order => [ 
+      order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH') : '-', 
+      `REF-${order.id.slice(-6).toUpperCase()}`, 
+      `"${order.customerName || ''}"`, 
+      order.phone || '-', 
+      `"${order.address || ''}"`, 
+      order.zipcode || '-', 
+      `"${(order.items || []).join(' | ')}"`, 
+      order.isCOD ? order.codAmount : "0", 
+      order.adminEmail || '-' 
+    ].join(','));
     const blob = new Blob(["\uFEFF" + headers.join(',') + '\n' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `SmartLabel_Orders.csv`; link.click();
+    const link = document.createElement("a"); link.href = URL.createObjectURL(blob); 
+    link.download = `SmartLabel_${selectedDate ? selectedDate.replace(/\//g, '-') : 'All'}.csv`; 
+    link.click();
   };
 
   const handleImageUpload = (e) => {
@@ -477,6 +524,94 @@ export default function App() {
         .modal-enter { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         @keyframes fadeIn { from { opacity: 0; transform: scale(0.95) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
       `}</style>
+
+      {/* 🔥 The "WOW" Onboarding Tutorial */}
+      {showTutorial && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[100] print:hidden">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-lg w-full text-center modal-enter relative overflow-hidden">
+            {/* วงกลมตกแต่งฉากหลัง */}
+            <div className="absolute -top-20 -right-20 w-40 h-40 bg-blue-100 rounded-full blur-2xl opacity-50 pointer-events-none"></div>
+            <div className="absolute -bottom-20 -left-20 w-40 h-40 bg-indigo-100 rounded-full blur-2xl opacity-50 pointer-events-none"></div>
+            
+            {/* เนื้อหาคู่มือ */}
+            <div className="relative z-10 min-h-[250px] flex flex-col items-center justify-center">
+              {tutorialStep === 0 && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                  <div className="text-7xl mb-4 animate-bounce">⚙️</div>
+                  <h3 className="text-2xl font-black text-slate-800 mb-3">1. ตั้งค่าร้านค้าให้เป๊ะ!</h3>
+                  <p className="text-slate-600 font-medium leading-relaxed">เริ่มต้นด้วยการกดปุ่ม <span className="font-bold text-blue-600">"ตั้งค่าร้าน"</span> (มุมขวาบน) เพื่อใส่ชื่อ เบอร์โทร และที่อยู่ของคุณให้ครบถ้วน เพื่อให้ไปแสดงบนใบจ่าหน้าอย่างสวยงาม</p>
+                </div>
+              )}
+              {tutorialStep === 1 && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                  <div className="text-7xl mb-4 hover:scale-110 transition-transform">👥</div>
+                  <h3 className="text-2xl font-black text-slate-800 mb-3">2. สร้างทีมงานแพ็กของ</h3>
+                  <p className="text-slate-600 font-medium leading-relaxed">ไปที่แท็บ <span className="font-bold text-blue-600">"พนักงาน"</span> เพื่อเพิ่มลูกน้องเข้าสู่ระบบ พวกเขาจะล็อกอินด้วยเบอร์โทรได้ทันที โดยไม่เห็นข้อมูลโควต้าและการเงินของร้าน!</p>
+                </div>
+              )}
+              {tutorialStep === 2 && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                  <div className="text-7xl mb-4">✍️</div>
+                  <h3 className="text-2xl font-black text-slate-800 mb-3">3. วางแชท สกัดจ่าหน้า</h3>
+                  <p className="text-slate-600 font-medium leading-relaxed">ก๊อปปี้ที่อยู่ลูกค้ามาวาง ระบบจะแยกชื่อ เบอร์โทร และรหัสไปรษณีย์ให้อัตโนมัติ <br/><span className="text-rose-500 font-bold">อย่าลืม!</span> ตรวจสอบความถูกต้องก่อนกดบันทึกและสั่งพิมพ์นะ</p>
+                </div>
+              )}
+              {tutorialStep === 3 && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                  <div className="text-7xl mb-4 animate-float">🚀</div>
+                  <h3 className="text-2xl font-black text-slate-800 mb-3">4. โควต้าหมด? เติมได้เลย</h3>
+                  <p className="text-slate-600 font-medium leading-relaxed">ถ้าจ่าหน้าใกล้หมด กดปุ่ม <span className="font-bold text-indigo-600">"+ เติมโควต้า"</span> สแกนจ่ายผ่านคิวอาร์โค้ด แล้วอัปโหลดรูปสลิปส่งให้แอดมินอนุมัติได้ง่ายๆ ไม่กี่วินาที</p>
+                </div>
+              )}
+              {tutorialStep === 4 && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                  <div className="text-7xl mb-4">📊</div>
+                  <h3 className="text-2xl font-black text-slate-800 mb-3">5. วิเคราะห์ยอดขาย</h3>
+                  <p className="text-slate-600 font-medium leading-relaxed">เช็คสถิติการส่ง แยกยอดโอนและยอด COD รายวันได้ที่แท็บ <span className="font-bold text-blue-600">"สถิติ"</span> พร้อมดาวน์โหลดประวัติเป็น Excel ไปทำบัญชีต่อได้ทันที</p>
+                </div>
+              )}
+            </div>
+
+            {/* จุดบอกสถานะ (Dots) */}
+            <div className="flex justify-center gap-2 mt-6 mb-8">
+              {[0, 1, 2, 3, 4].map((step) => (
+                <div key={step} className={`w-2.5 h-2.5 rounded-full transition-colors ${tutorialStep === step ? 'bg-blue-600 w-6' : 'bg-slate-200'}`}></div>
+              ))}
+            </div>
+
+            {/* ปุ่มควบคุม */}
+            <div className="flex justify-between gap-4">
+              <button 
+                onClick={() => setTutorialStep(prev => Math.max(0, prev - 1))} 
+                className={`px-6 py-3 rounded-xl font-bold transition-opacity ${tutorialStep === 0 ? 'opacity-0 cursor-default' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                disabled={tutorialStep === 0}
+              >
+                ย้อนกลับ
+              </button>
+              
+              {tutorialStep < 4 ? (
+                <button 
+                  onClick={() => setTutorialStep(prev => prev + 1)} 
+                  className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition-transform active:scale-95"
+                >
+                  ถัดไป 👉
+                </button>
+              ) : (
+                <button 
+                  onClick={() => {
+                    localStorage.setItem(`has_seen_tutorial_${user.uid}`, 'true');
+                    setShowTutorial(false);
+                    setIsSettingsOpen(true); // 🔥 ปิดคู่มือปุ๊บ บังคับเด้งหน้าตั้งค่าร้านทันที!
+                  }} 
+                  className="flex-1 bg-emerald-500 text-white px-6 py-3 rounded-xl font-black shadow-lg shadow-emerald-500/30 hover:bg-emerald-600 transition-transform active:scale-95 animate-pulse"
+                >
+                  เริ่มลุยกันเลย! 🎉
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       
       {isTopupOpen && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-50 print:hidden transition-opacity">
@@ -506,10 +641,13 @@ export default function App() {
             </div>
 
             <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">2</span> สแกน QR ชำระเงิน</h3>
-            <div className="flex flex-col items-center bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6">
+              <div className="flex flex-col items-center bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6">
               <div className="bg-white p-3 rounded-xl shadow-sm mb-3 border border-slate-100">
-                {/* 🎯 เปลี่ยนเบอร์ PromptPay ได้ตรงบรรทัดนี้เลยครับ! */}
-                <QRCodeSVG value="0874484448" size={130} />
+                {/* 🎯 สร้างรหัส PromptPay อัตโนมัติ (ใส่เบอร์พาร์ทเนอร์ และยอดเงิน) */}
+                <QRCodeSVG 
+                  value={generatePayload("0874484448", { amount: selectedPackage === 100 ? 50 : 200 })} 
+                  size={130} 
+                />
               </div>
               <p className="text-sm font-black text-slate-800">พร้อมเพย์: ท็อปปี้สมาร์ท โลจิสติกส์</p>
               <p className="text-lg font-black text-emerald-600 mt-1 bg-emerald-50 px-4 py-1 rounded-full border border-emerald-100">
@@ -551,10 +689,22 @@ export default function App() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 print:hidden">
           <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md animate-[fadeIn_0.3s_ease-out]">
             <h2 className="text-2xl font-bold mb-6 text-gray-800">⚙️ ตั้งค่าข้อมูลร้านค้า</h2>
-            <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-2">ชื่อร้านค้า (ผู้ส่ง)</label><input type="text" className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all" value={tempProfile.name} onChange={(e) => setTempProfile({...tempProfile, name: e.target.value})} /></div>
-            <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-2">เบอร์โทรศัพท์</label><input type="text" className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all" value={tempProfile.phone} onChange={(e) => setTempProfile({...tempProfile, phone: e.target.value})} /></div>
-            <div className="mb-8"><label className="block text-sm font-bold text-gray-700 mb-2">ที่อยู่ร้านค้า</label><textarea className="w-full border p-3 rounded-xl h-24 resize-none focus:ring-4 focus:ring-blue-100 outline-none transition-all" value={tempProfile.address} onChange={(e) => setTempProfile({...tempProfile, address: e.target.value})} /></div>
-            <div className="flex justify-end gap-3"><button onClick={() => setIsSettingsOpen(false)} className="btn-cute px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold">ยกเลิก</button><button onClick={handleSaveProfile} className="btn-cute px-6 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-500/30">💾 บันทึก</button></div>
+            <div className="mb-4">
+              <label className="block text-sm font-bold text-gray-700 mb-2">ชื่อร้านค้า (ผู้ส่ง)</label>
+              <input type="text" className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all" value={tempProfile.name} onChange={(e) => setTempProfile({...tempProfile, name: e.target.value})} placeholder="กรอกชื่อร้านค้าของคุณ..." />
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-bold text-gray-700 mb-2">เบอร์โทรศัพท์ <span className="text-rose-500 text-xs ml-1">*จำเป็น</span></label>
+              <input type="text" className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all bg-yellow-50 focus:bg-white" value={tempProfile.phone} onChange={(e) => setTempProfile({...tempProfile, phone: e.target.value})} placeholder="เช่น 0891234567 (ติดต่อกรณีพัสดุมีปัญหา)" />
+            </div>
+            <div className="mb-8">
+              <label className="block text-sm font-bold text-gray-700 mb-2">ที่อยู่ร้านค้า <span className="text-rose-500 text-xs ml-1">*จำเป็น</span></label>
+              <textarea className="w-full border p-3 rounded-xl h-24 resize-none focus:ring-4 focus:ring-blue-100 outline-none transition-all bg-yellow-50 focus:bg-white" value={tempProfile.address} onChange={(e) => setTempProfile({...tempProfile, address: e.target.value})} placeholder="กรอกที่อยู่สำหรับจ่าหน้าผู้ส่ง หรือกรณีพัสดุตีกลับ..." />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setIsSettingsOpen(false)} className="btn-cute px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold">ยกเลิก</button>
+              <button onClick={handleSaveProfile} className="btn-cute px-6 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-500/30">💾 บันทึก</button>
+            </div>
           </div>
         </div>
       )}
@@ -692,15 +842,105 @@ export default function App() {
                </div>
             </div>
          </div>
-      ) : activeTab === 'dashboard' ? (
+) : activeTab === 'dashboard' ? (
          <div className="flex flex-col gap-6">
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+            {/* 1. สรุปยอดรวม (Top Cards) */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
               <h2 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-2">📊 ภาพรวมธุรกิจ</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-2">
                 <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 card-hover"><div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-xl mb-4">📦</div><h3 className="text-blue-600 font-bold mb-1">ส่งรวมทั้งหมด</h3><p className="text-5xl font-black text-blue-900">{dashboardStats.totalOrders} <span className="text-lg font-medium">ชิ้น</span></p></div>
                 <div className="bg-orange-50 p-6 rounded-2xl border border-orange-100 card-hover"><div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center text-xl mb-4">🚚</div><h3 className="text-orange-600 font-bold mb-1">ออเดอร์ COD</h3><p className="text-5xl font-black text-orange-900">{dashboardStats.codOrders} <span className="text-lg font-medium">ชิ้น</span></p></div>
                 <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100 card-hover"><div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center text-xl mb-4">💰</div><h3 className="text-emerald-600 font-bold mb-1">คาดการณ์เงินโอน</h3><p className="text-5xl font-black text-emerald-900">฿{dashboardStats.totalCodAmount.toLocaleString()}</p></div>
               </div>
+            </div>
+
+            {/* 2. กราฟสถิติ (Charts) */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+               {/* กราฟวงกลม */}
+               <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center card-hover">
+                  <h3 className="text-lg font-black text-slate-700 w-full text-left mb-2">สัดส่วนประเภทการชำระ</h3>
+                  <ResponsiveContainer width="100%" height={250}>
+                     <PieChart>
+                        <Pie data={dashboardStats.pieData} innerRadius={60} outerRadius={85} paddingAngle={5} dataKey="value">
+                           {dashboardStats.pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                        </Pie>
+                        <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
+                        <Legend wrapperStyle={{fontSize: '14px', fontWeight: 'bold'}} />
+                     </PieChart>
+                  </ResponsiveContainer>
+               </div>
+               
+               {/* กราฟแท่ง */}
+               <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 lg:col-span-2 card-hover">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-black text-slate-700">สถิติการส่งพัสดุรายวัน <span className="text-sm font-medium text-slate-400 ml-2">(คลิกที่แท่งกราฟเพื่อดูรายละเอียด)</span></h3>
+                    {selectedDate && <button onClick={() => setSelectedDate(null)} className="btn-cute text-xs bg-slate-100 text-slate-600 px-4 py-2 rounded-xl font-bold hover:bg-slate-200">❌ ดูทั้งหมด</button>}
+                  </div>
+                  <ResponsiveContainer width="100%" height={250}>
+                     <BarChart data={dashboardStats.barData} onClick={(data) => { if(data && data.activePayload) setSelectedDate(data.activePayload[0].payload.name); }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#64748b', fontWeight: 'bold'}} />
+                        <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#64748b'}} />
+                        <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
+                        <Legend iconType="circle" wrapperStyle={{fontSize: '13px', fontWeight: 'bold'}} />
+                        <Bar dataKey="โอนเงิน" stackId="a" fill="#22c55e" radius={[0, 0, 6, 6]} cursor="pointer" />
+                        <Bar dataKey="COD" stackId="a" fill="#f97316" radius={[6, 6, 0, 0]} cursor="pointer" />
+                     </BarChart>
+                  </ResponsiveContainer>
+               </div>
+            </div>
+
+            {/* 3. ตารางรายละเอียด (Data Table) */}
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 mb-10">
+               <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                  <h3 className="text-xl font-black text-slate-800 flex items-center gap-3">
+                     📋 รายละเอียดพัสดุ 
+                     {selectedDate && <span className="text-blue-600 bg-blue-50 px-4 py-1.5 rounded-xl text-sm border border-blue-100 animate-[fadeIn_0.3s_ease-out]">📅 ประจำวันที่: {selectedDate}</span>}
+                  </h3>
+                  <div className="flex gap-3 w-full md:w-auto">
+                     <input type="text" placeholder="🔍 ค้นหา ชื่อ, รหัสปณ, หรือ REF..." value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} className="border border-slate-200 p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none text-sm w-full md:w-72 transition-all bg-slate-50 focus:bg-white" />
+                     <button onClick={handleExportCSV} className="btn-cute bg-emerald-50 text-emerald-600 font-black px-6 py-3 rounded-xl text-sm hover:bg-emerald-500 hover:text-white flex-shrink-0 transition-colors shadow-sm">📥 ดาวน์โหลด Excel</button>
+                  </div>
+               </div>
+               
+               <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+                 <table className="w-full text-sm text-left">
+                   <thead className="bg-slate-50 uppercase text-xs font-black text-slate-500 tracking-wider border-b border-slate-200">
+                     <tr>
+                       <th className="py-4 px-6 whitespace-nowrap">วันที่ / เวลา</th>
+                       <th className="py-4 px-6 whitespace-nowrap">หมายเลขสิ่งของ</th>
+                       <th className="py-4 px-6 whitespace-nowrap">ชื่อผู้รับ</th>
+                       <th className="py-4 px-6 min-w-[200px]">ที่อยู่จัดส่ง</th>
+                       <th className="py-4 px-6 text-right whitespace-nowrap">ยอดเก็บเงิน (COD)</th>
+                     </tr>
+                   </thead>
+                   <tbody>
+                     {filteredOrders.length === 0 ? (
+                        <tr><td colSpan="5" className="text-center py-16 text-slate-400 font-medium">ไม่พบข้อมูลที่ค้นหา หรือยังไม่มีออเดอร์ในวันนี้...</td></tr>
+                     ) : (
+                        filteredOrders.map((order, idx) => (
+                           <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
+                              <td className="py-4 px-6 text-slate-500 whitespace-nowrap">{order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '-'}</td>
+                              <td className="py-4 px-6 font-mono font-bold text-indigo-600 tracking-wider bg-indigo-50/30 whitespace-nowrap">REF-{order.id.slice(-6).toUpperCase()}</td>
+                              <td className="py-4 px-6 whitespace-nowrap">
+                                 <p className="font-bold text-slate-800 text-base">{order.customerName}</p>
+                                 <p className="text-xs text-slate-500 mt-1 font-medium">☎ {order.phone}</p>
+                              </td>
+                              <td className="py-4 px-6">
+                                 <p className="text-slate-600 line-clamp-2 text-xs leading-relaxed mb-1" title={order.address}>{order.address}</p>
+                                 <span className="font-black text-slate-800 tracking-widest bg-slate-100 px-2 py-0.5 rounded text-xs">{order.zipcode}</span>
+                              </td>
+                              <td className="py-4 px-6 text-right">
+                                 {order.isCOD 
+                                  ? <span className="font-black text-xl text-orange-600 bg-orange-50 px-4 py-1.5 rounded-xl border border-orange-100">฿{order.codAmount}</span> 
+                                  : <span className="font-black text-emerald-600 text-sm bg-emerald-50 px-4 py-1.5 rounded-xl border border-emerald-100">โอนเงินแล้ว</span>}
+                              </td>
+                           </tr>
+                        ))
+                     )}
+                   </tbody>
+                 </table>
+               </div>
             </div>
          </div>
       ) : activeTab === 'team' && userRole === 'Owner' ? (
