@@ -7,45 +7,89 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWith
 import { initializeApp, getApps } from "firebase/app";
 import { collection, addDoc, getDocs, query, serverTimestamp, doc, getDoc, setDoc, where, updateDoc, increment, deleteDoc } from "firebase/firestore";
 
+// 🔥 สมองกล Advanced Parser ตัวเทพ
 const extractOrderData = (rawText) => {
   if (!rawText) return null;
-  const cleanText = rawText.replace(/-/g, '');
-  const zipMatch = cleanText.match(/\b\d{5}\b/);
-  const zipcode = zipMatch ? zipMatch[0] : '';
+  let cleanText = rawText.replace(/-/g, ''); 
+
   const phoneMatch = cleanText.match(/\b0\d{8,9}\b/);
   const phone = phoneMatch ? phoneMatch[0] : '';
+  const zipMatch = cleanText.match(/\b\d{5}\b/);
+  const zipcode = zipMatch ? zipMatch[0] : '';
 
   let isCOD = false;
   let codAmount = '';
   const codRegex = /(?:cod|ปลายทาง|เก็บเงินปลายทาง|ยอด)\s*[:=]?\s*([\d,]+)/i;
-  const codMatch = cleanText.match(codRegex);
-  if (codMatch) { isCOD = true; codAmount = codMatch[1]; }
-  
-  let remainingText = cleanText;
-  if (zipcode) remainingText = remainingText.replace(zipcode, '');
-  if (phone) remainingText = remainingText.replace(phone, '');
-  if (codMatch) remainingText = remainingText.replace(codMatch[0], ''); 
-  
-  const lines = remainingText.split('\n').map(line => line.trim()).filter(line => line !== '');
+
+  let addressPart = cleanText;
+  let itemsPart = '';
+
+  let lastIndex = -1;
+  if (phoneMatch) lastIndex = Math.max(lastIndex, cleanText.indexOf(phoneMatch[0]) + phoneMatch[0].length);
+  if (zipMatch) lastIndex = Math.max(lastIndex, cleanText.indexOf(zipMatch[0]) + zipMatch[0].length);
+
+  if (lastIndex > -1 && lastIndex < cleanText.length) {
+    itemsPart = cleanText.substring(lastIndex);
+    addressPart = cleanText.substring(0, lastIndex);
+  }
+
+  const codMatchItems = itemsPart.match(codRegex) || addressPart.match(codRegex);
+  if (codMatchItems) {
+    isCOD = true;
+    codAmount = codMatchItems[1];
+    itemsPart = itemsPart.replace(codMatchItems[0], '');
+    addressPart = addressPart.replace(codMatchItems[0], '');
+  }
+
+  if (phone) addressPart = addressPart.replace(phone, '');
+  if (zipcode) addressPart = addressPart.replace(zipcode, '');
+  addressPart = addressPart.replace(/\b(โทร\.?|เบอร์โทรศัพท์|เบอร์ติดต่อ|tel\.?)\b/gi, '');
+
+  let lines = addressPart.split('\n').map(l => l.trim()).filter(l => l !== '');
   let customerName = '';
   let addressLines = [];
-  let items = [];
-  const itemRegex = /(x\s*\d+|\d+\s*(ตัว|ชิ้น|กล่อง|ใบ|คู่|ชุด|แพ็ค|ขวด|ซอง))/i;
 
-  lines.forEach((line, index) => {
-    if (itemRegex.test(line)) items.push(line); 
-    else if (index === 0) customerName = line; 
-    else addressLines.push(line); 
-  });
+  if (lines.length === 1) {
+    const splitRegex = /\s(\d+\/|\d+\s|บ้านเลขที่|หมู่|ม\.|ซอย|ซ\.|ถนน|ถ\.|ตำบล|ต\.)/;
+    const match = lines[0].match(splitRegex);
+    
+    if (match) {
+      customerName = lines[0].substring(0, match.index).trim();
+      addressLines.push(lines[0].substring(match.index).trim());
+    } else {
+      const firstSpace = lines[0].indexOf(' ');
+      if (firstSpace > -1) {
+        customerName = lines[0].substring(0, firstSpace).trim();
+        addressLines.push(lines[0].substring(firstSpace).trim());
+      } else {
+        customerName = lines[0];
+      }
+    }
+  } else if (lines.length > 1) {
+    customerName = lines[0];
+    addressLines = lines.slice(1);
+  }
+
+  let items = [];
+  const cleanedItemsPart = itemsPart.trim();
+  if (cleanedItemsPart) {
+    const itemSplitRegex = /(.+?(?:x\s*\d+|\d+\s*(?:ตัว|ชิ้น|กล่อง|ใบ|คู่|ชุด|แพ็ค|ขวด|ซอง)))(?:\s+|$)/gi;
+    let match;
+    let foundItems = [];
+    while ((match = itemSplitRegex.exec(cleanedItemsPart)) !== null) {
+        foundItems.push(match[1].trim());
+    }
+    items = foundItems.length > 0 ? foundItems : [cleanedItemsPart];
+  }
 
   const address = addressLines.join(' ').trim();
+  
   let warnings = [];
   if (!phone) warnings.push(isCOD ? "⚠️ ไม่มีเบอร์โทร (COD บังคับ!)" : "⚠️ ไม่มีเบอร์โทรศัพท์");
   if (!zipcode) warnings.push("⚠️ ไม่มีรหัสไปรษณีย์");
-  if (cleanText.trim() !== '') {
-    if (!/(ต\.|ตำบล|แขวง)/.test(cleanText)) warnings.push("⚠️ ขาด ตำบล/แขวง");
-    if (!/(อ\.|อำเภอ|เขต)/.test(cleanText)) warnings.push("⚠️ ขาด อำเภอ/เขต");
-    if (address === '') warnings.push("⚠️ ควรเคาะ Enter แยกชื่อ กับ ที่อยู่");
+  if (addressPart.trim() !== '') {
+    if (!/(ต\.|ตำบล|แขวง)/.test(addressPart)) warnings.push("⚠️ ขาด ตำบล/แขวง");
+    if (!/(อ\.|อำเภอ|เขต)/.test(addressPart)) warnings.push("⚠️ ขาด อำเภอ/เขต");
   }
 
   return { customerName, phone, address, zipcode, items, isCOD, codAmount, warnings };
@@ -239,7 +283,6 @@ export default function App() {
                historyData.push(doc.data());
            }
         });
-        
         if(historyData.length > 0) {
             historyData.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
             setOrders(prev => prev.map(o => o.id === orderId ? { ...o, crmSuggestion: historyData[0] } : o));
@@ -279,7 +322,6 @@ export default function App() {
     setOrders(remaining.length === 0 ? [{ id: Date.now(), rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }] : remaining);
   };
 
-  // 🔥 ฟังก์ชันพระเอกของเราอยู่นี่ครับ เลื่อนหน้าจอไปยังตำแหน่งที่อ้างอิง
   const handleFocus = (id) => { 
       if (labelRefs.current[id]) {
           labelRefs.current[id].scrollIntoView({ behavior: 'smooth', block: 'center' }); 
@@ -326,7 +368,7 @@ export default function App() {
   
   const handleExportCSV = () => {
     if (historyOrders.length === 0) return alert("ไม่มีข้อมูลให้ดาวน์โหลดครับ");
-    const headers = ["วันที่สร้าง", "เลขพัสดุ", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "รหัสไปรษณีย์", "รายการสินค้า", "ยอด COD", "แอดมิน"];
+    const headers = ["วันที่สร้าง", "เลขอ้างอิง", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "รหัสไปรษณีย์", "รายการสินค้า", "ยอด COD", "แอดมิน"];
     const csvRows = historyOrders.map(order => [
       order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH') : '-', `REF-${order.id.slice(-6).toUpperCase()}`, `"${order.customerName || ''}"`, order.phone || '-', `"${order.address || ''}"`, order.zipcode || '-', `"${(order.items || []).join(' | ')}"`, order.isCOD ? order.codAmount : "0", order.adminEmail || '-'
     ].join(','));
@@ -352,7 +394,6 @@ export default function App() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 font-bold text-blue-600 animate-pulse">กำลังโหลดระบบ...</div>;
 
-  // --- Landing Page ---
   if (!user && !isAuthView) {
     return (
       <div className="min-h-screen bg-white font-sans text-gray-900 selection:bg-blue-200">
@@ -364,71 +405,49 @@ export default function App() {
           .card-hover { transition: transform 0.3s ease, box-shadow 0.3s ease; }
           .card-hover:hover { transform: translateY(-5px); box-shadow: 0 20px 30px -10px rgba(0,0,0,0.1); }
         `}</style>
-        
         <nav className="flex justify-between items-center px-6 py-4 border-b">
           <div className="text-2xl font-black text-blue-800 flex items-center gap-2"><span className="animate-float inline-block">📦</span> SmartLabel</div>
           <button onClick={() => setIsAuthView(true)} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-full font-bold">เข้าสู่ระบบ</button>
         </nav>
-        
         <header className="px-6 py-20 text-center bg-gradient-to-b from-blue-50 to-white">
           <h1 className="text-5xl md:text-7xl font-black text-blue-900 mb-6 leading-tight hover:scale-[1.01] transition-transform">จ่าหน้าพัสดุไวขึ้น 10 เท่า <br/> <span className="text-blue-600">ด้วยสมองกลอัจฉริยะ</span></h1>
           <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">สกัดชื่อที่อยู่จากแชทลูกค้าอัตโนมัติ พร้อมระบบจดจำลูกค้าเก่า (CRM) และสถิติครบวงจร เพื่อแม่ค้าออนไลน์มือโปรเช่นคุณ</p>
           <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white text-xl px-12 py-4 rounded-full font-black shadow-xl animate-bounce mt-4">เริ่มทดลองใช้ฟรี 20 ใบ</button>
         </header>
-        
         <section className="py-20 px-6 max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12">
            <div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-12 transition-transform duration-300 inline-block">🧠</div><h3 className="text-xl font-bold mb-2">Smart CRM</h3><p className="text-gray-500">พิมพ์แค่เบอร์โทร ข้อมูลชื่อและที่อยู่ลูกค้าเก่าเด้งขึ้นมาให้ทันที</p></div>
            <div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:-translate-y-2 transition-transform duration-300 inline-block">🖨️</div><h3 className="text-xl font-bold mb-2">Thermal Ready</h3><p className="text-gray-500">ออกแบบมาเพื่อเครื่องพิมพ์ความร้อน พิมพ์ออกมาสวยเป๊ะทุกใบ</p></div>
            <div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-[-12deg] transition-transform duration-300 inline-block">📊</div><h3 className="text-xl font-bold mb-2">Dashboard & Export</h3><p className="text-gray-500">ดูยอดส่งรายวัน และดาวน์โหลดข้อมูลเป็น Excel ได้ในคลิกเดียว</p></div>
         </section>
-
         <section className="py-24 bg-slate-50 border-t border-slate-100">
           <div className="max-w-4xl mx-auto px-6 text-center">
             <h2 className="text-4xl font-black mb-12 text-slate-800">ราคาแพ็กเกจที่คุณเลือกได้</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="bg-white p-10 rounded-3xl shadow-lg border border-slate-200 card-hover flex flex-col justify-between">
-                 <div>
-                   <p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">เริ่มต้นเบาๆ</p>
-                   <p className="text-6xl font-black mb-4 text-slate-800">฿50</p>
-                   <p className="text-slate-500 mb-8 font-medium">ได้รับ 100 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.5 บาท/ใบ)</span></p>
-                 </div>
+                 <div><p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">เริ่มต้นเบาๆ</p><p className="text-6xl font-black mb-4 text-slate-800">฿50</p><p className="text-slate-500 mb-8 font-medium">ได้รับ 100 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.5 บาท/ใบ)</span></p></div>
                  <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-xl border-2 border-blue-600 text-blue-600 font-bold hover:bg-blue-50">เริ่มต้นใช้งาน</button>
               </div>
               <div className="bg-white p-10 rounded-3xl shadow-2xl border-4 border-blue-600 relative overflow-hidden card-hover transform md:-translate-y-4 flex flex-col justify-between">
                  <div className="absolute top-0 right-0 bg-blue-600 text-white px-6 py-2 font-black text-sm rounded-bl-2xl shadow-sm tracking-widest">ยอดฮิต 🔥</div>
-                 <div>
-                   <p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">คุ้มค่าที่สุด</p>
-                   <p className="text-6xl font-black mb-4 text-slate-800">฿200</p>
-                   <p className="text-slate-500 mb-8 font-medium">ได้รับ 500 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.4 บาท/ใบ)</span></p>
-                 </div>
+                 <div><p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">คุ้มค่าที่สุด</p><p className="text-6xl font-black mb-4 text-slate-800">฿200</p><p className="text-slate-500 mb-8 font-medium">ได้รับ 500 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.4 บาท/ใบ)</span></p></div>
                  <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-500/40">เลือกแพ็กเกจนี้</button>
               </div>
             </div>
-            
-            <div className="mt-12 text-slate-500 font-medium bg-white p-6 rounded-2xl shadow-sm border border-slate-200 inline-block">
-              ต้องการส่งไม่จำกัดจำนวน? แพ็กเกจ Unlimited ฿299/เดือน <button className="text-blue-600 font-bold hover:underline ml-2">ติดต่อทีมงาน</button>
-            </div>
+            <div className="mt-12 text-slate-500 font-medium bg-white p-6 rounded-2xl shadow-sm border border-slate-200 inline-block">ต้องการส่งไม่จำกัดจำนวน? แพ็กเกจ Unlimited ฿299/เดือน <button className="text-blue-600 font-bold hover:underline ml-2">ติดต่อทีมงาน</button></div>
           </div>
         </section>
-
-        <footer className="py-12 bg-white border-t border-slate-100 text-center text-slate-400 text-sm font-medium">
-           © 2026 ToppySmart Logistics. พัฒนาโดยพาร์ทเนอร์ & CTO Copilot
-        </footer>
+        <footer className="py-12 bg-white border-t border-slate-100 text-center text-slate-400 text-sm font-medium">© 2026 ToppySmart Logistics. พัฒนาโดยพาร์ทเนอร์ & CTO Copilot</footer>
       </div>
     );
   }
 
-  // --- Login / Register View ---
   if (!user && isAuthView) {
     return (
       <div className="min-h-screen bg-blue-900 flex flex-col items-center justify-center p-6 font-sans relative">
         <style>{`.btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); } .btn-cute:hover { transform: scale(1.05); }`}</style>
         <button onClick={() => setIsAuthView(false)} className="absolute top-6 left-6 text-blue-200 hover:text-white font-bold transition hover:-translate-x-1">← กลับหน้าหลัก</button>
         <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md animate-[fadeIn_0.5s_ease-out]">
-          <div className="text-center mb-6">
-            <h1 className="text-4xl font-extrabold text-blue-800 mb-2 flex justify-center items-center gap-2"><span className="animate-bounce inline-block">📦</span> SmartLabel</h1>
-            <p className="text-gray-500 font-bold">{authMode === 'login' ? 'ยินดีต้อนรับกลับมา!' : 'เริ่มต้นความสำเร็จไปกับเรา'}</p>
-          </div>
+          <div className="text-center mb-6"><h1 className="text-4xl font-extrabold text-blue-800 mb-2 flex justify-center items-center gap-2"><span className="animate-bounce inline-block">📦</span> SmartLabel</h1><p className="text-gray-500 font-bold">{authMode === 'login' ? 'ยินดีต้อนรับกลับมา!' : 'เริ่มต้นความสำเร็จไปกับเรา'}</p></div>
           <form onSubmit={handleAuth}>
             {authMode === 'register' && (<div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">ชื่อร้านค้าของคุณ</label><input name="storeName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none bg-gray-50 transition-all" placeholder="เช่น ToppySmart Shop" /></div>)}
             <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">{authMode === 'login' ? 'อีเมล หรือ เบอร์โทรศัพท์' : 'อีเมลของคุณ'}</label><input name="email" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none bg-gray-50 transition-all" placeholder={authMode === 'login' ? "เบอร์โทรศัพท์ หรือ อีเมล" : "owner@mail.com"} /></div>
@@ -443,35 +462,49 @@ export default function App() {
     );
   }
 
-  // --- Print View (อัปเดต QR Code เป็น REF: แล้ว) ---
+  // --- Print View ---
   if (reprintOrder) {
     return (
       <div className="bg-white min-h-screen">
-        <style>{`@media print { @page { size: 100mm 150mm; margin: 0; } body { background-color: white; -webkit-print-color-adjust: exact; margin: 0; } .thermal-label { width: 100mm; height: 148mm; padding: 5mm; box-sizing: border-box; margin: 0; border: none; overflow: hidden; } }`}</style>
+        {/* 🔥 ปลดล็อกกล่องพิมพ์ที่นี่! เปลี่ยนเป็น min-height */}
+        <style>{`@media print { @page { size: 100mm 150mm; margin: 0; } body, html { background-color: white; margin: 0; padding: 0; -webkit-print-color-adjust: exact; } .thermal-label { width: 100mm !important; height: auto !important; min-height: 148mm !important; padding: 5mm !important; box-sizing: border-box !important; margin: 0 !important; border: none !important; box-shadow: none !important; page-break-after: always; page-break-inside: avoid; } }`}</style>
         <div className="w-full max-w-sm mx-auto p-4 thermal-label print:max-w-none print:m-0 print:p-2">
            <div className="flex justify-between border-b pb-2 mb-2 font-bold text-sm"><span>SmartLabel ✅</span><span className="text-gray-500">Admin: {reprintOrder.adminEmail?.split('@')[0]}</span></div>
            <div className="mb-3"><p className="text-xs text-gray-500">ผู้ส่ง:</p><p className="font-bold text-sm">{reprintOrder.storeName}</p></div>
            {reprintOrder.isCOD && <div className="bg-black text-white text-center py-2 mb-2 text-2xl font-bold">COD: {reprintOrder.codAmount}</div>}
            <div className="bg-gray-100 p-2 mb-2 print:bg-white print:border"><p className="text-xs text-blue-600 font-bold">ผู้รับ:</p><p className="text-xl font-bold">{reprintOrder.customerName || 'ไม่มีชื่อผู้รับ'}</p><p className="text-lg font-bold">☎ {reprintOrder.phone || '-'}</p><p className="text-sm leading-tight">{reprintOrder.address || 'ไม่มีที่อยู่'}</p></div>
            <div className="text-center text-4xl font-black mb-3 tracking-widest">{reprintOrder.zipcode || '00000'}</div>
-           
-           {/* 🔥 แก้ไข QR Code ให้เล็กลง และเปลี่ยนเป็น REF: */}
            <div className="flex flex-col items-center border-t border-b py-2 mb-2">
              <QRCodeSVG value={JSON.stringify({ id: reprintOrder.id, cod: reprintOrder.isCOD ? reprintOrder.codAmount : 0 })} size={60} />
              <p className="text-[10px] mt-1 font-mono uppercase font-bold text-slate-500 tracking-widest">REF: #{String(reprintOrder.id).slice(-6)}</p>
            </div>
-           
            <div><p className="text-xs font-bold">รายการสินค้า:</p>{reprintOrder.items && reprintOrder.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 mt-1 leading-tight">{reprintOrder.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-500 italic mt-1">- ไม่ระบุรายการ -</p>)}</div>
         </div>
       </div>
     );
   }
 
-  // --- Main Dashboard View ---
   return (
     <div className="min-h-screen bg-slate-50 p-6 font-sans print:bg-white print:p-0 relative">
+      {/* 🔥 ปลดล็อกกล่องพิมพ์ที่นี่! เปลี่ยนเป็น min-height และเอา overflow:hidden ทิ้ง */}
       <style>{`
-        @media print { @page { size: 100mm 150mm; margin: 0; } body { background-color: white; -webkit-print-color-adjust: exact; margin: 0; } .thermal-label { width: 100mm; height: 148mm; padding: 5mm; box-sizing: border-box; page-break-after: always; margin: 0 auto; border: none !important; overflow: hidden; } }
+        @media print { 
+          @page { size: 100mm 150mm; margin: 0; } 
+          body, html { background-color: white; margin: 0; padding: 0; -webkit-print-color-adjust: exact; } 
+          ::-webkit-scrollbar { display: none; }
+          .thermal-label { 
+            width: 100mm !important; 
+            min-height: 148mm !important; 
+            height: auto !important; 
+            padding: 5mm !important; 
+            box-sizing: border-box !important; 
+            page-break-after: always !important; 
+            page-break-inside: avoid !important;
+            margin: 0 !important; 
+            border: none !important; 
+            box-shadow: none !important;
+          } 
+        }
         .btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         .btn-cute:hover { transform: scale(1.05) translateY(-2px); box-shadow: 0 5px 15px -5px rgba(0,0,0,0.2); }
         .card-hover { transition: transform 0.3s ease, box-shadow 0.3s ease; }
@@ -538,7 +571,7 @@ export default function App() {
 
       {/* --- Tab Content --- */}
       {activeTab === 'maker' ? (
-         <div className="flex flex-col lg:flex-row gap-6 print:block">
+         <div className="flex flex-col lg:flex-row gap-6 print:block print:gap-0 print:m-0">
             <div className="flex-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 max-h-[75vh] overflow-y-auto print:hidden">
               <h2 className="text-xl font-black mb-6 text-gray-800 flex items-center gap-2"><span className="text-blue-500">1.</span> วางข้อความแชต</h2>
               {orders.map((order, index) => {
@@ -551,8 +584,6 @@ export default function App() {
                   <div key={order.id} className="mb-6 p-5 rounded-2xl border border-gray-100 bg-slate-50/50 hover:bg-white transition-colors group">
                     <div className="flex justify-between items-center mb-3"><label className="font-bold text-gray-500 bg-white px-3 py-1 rounded-lg text-sm shadow-sm border border-gray-100">ออเดอร์ที่ {index + 1} {order.isSaved && <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">💾 บันทึกแล้ว</span>}</label>{(order.rawText !== '' || orders.length > 1) && <button onClick={() => handleDeleteOrder(order.id)} className="text-rose-400 hover:text-rose-600 text-sm font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️ ลบ</button>}</div>
                     {order.crmSuggestion && <div className="mb-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl flex justify-between items-center shadow-sm animate-pulse"><div><p className="text-xs text-indigo-600 font-black mb-1">✨ พบประวัติลูกค้า!</p><p className="text-sm font-bold text-slate-800">{order.crmSuggestion.customerName}</p></div><button onClick={() => applyCrmData(order.id, order.crmSuggestion)} className="btn-cute bg-indigo-600 text-white text-xs font-bold py-2 px-4 rounded-lg shadow-md shadow-indigo-500/30">ใช้ข้อมูลนี้</button></div>}
-                    
-                    {/* 🔥 ฟังก์ชัน onFocus กลับมาแล้วครับ! กล่องขวาจะเลื่อนตามแน่นอน */}
                     <textarea 
                       className={`w-full h-32 p-4 rounded-xl focus:outline-none focus:ring-4 resize-none transition-all shadow-inner ${boxColorClass}`} 
                       placeholder="วางที่อยู่ หรือ พิมพ์แค่เบอร์โทรศัพท์..." 
@@ -560,29 +591,23 @@ export default function App() {
                       onChange={(e) => handleTextChange(order.id, e.target.value)} 
                       onFocus={() => handleFocus(order.id)} 
                     />
-                    
                     {order.parsedData && order.parsedData.warnings.length > 0 && <div className="mt-3 text-sm font-bold text-rose-500 flex flex-col gap-1 bg-rose-50 p-3 rounded-lg border border-rose-100">{order.parsedData.warnings.map((w, i) => <span key={i}>⚠️ {w.replace('⚠️ ', '')}</span>)}</div>}
                   </div>
                 );
               })}
             </div>
-            <div className="flex-1 bg-slate-100/50 rounded-2xl shadow-inner border-2 border-dashed border-slate-300 max-h-[75vh] overflow-y-auto print:bg-white print:border-none relative">
+            
+            <div className="flex-1 bg-slate-100/50 rounded-2xl shadow-inner border-2 border-dashed border-slate-300 max-h-[75vh] overflow-y-auto print:max-h-none print:overflow-visible print:bg-white print:border-none print:shadow-none print:m-0 print:p-0 relative print:static">
                <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 p-5 flex justify-between items-center z-10 print:hidden"><h2 className="text-xl font-black text-gray-800 flex items-center gap-2"><span className="text-blue-500">2.</span> ตรวจสอบและสั่งพิมพ์</h2><button onClick={handleSaveAndPrint} className="btn-cute bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2">💾 บันทึก & สั่งพิมพ์</button></div>
-               <div className="p-8 print:p-0">
+               <div className="p-8 print:p-0 print:m-0">
                 {orders.filter(o => o.parsedData).map((order) => (
-                  <div key={order.id} ref={(el) => (labelRefs.current[order.id] = el)} className="w-full max-w-sm mx-auto mb-10 bg-white border-2 border-black p-4 thermal-label shadow-xl card-hover print:shadow-none">
-                     <div className="flex justify-between border-b-2 border-slate-200 pb-2 mb-3 font-bold text-sm"><span>SmartLabel ✅</span><span className="text-gray-500">Admin: {user.email.split('@')[0]}</span></div>
+                  <div key={order.id} ref={(el) => (labelRefs.current[order.id] = el)} className="w-full max-w-sm mx-auto mb-10 bg-white border-2 border-black p-4 thermal-label shadow-xl card-hover print:max-w-none print:mx-0 print:mb-0 print:shadow-none print:transform-none">
+                     <div className="flex justify-between border-b-2 border-slate-200 pb-2 mb-3 font-bold text-sm print:border-black"><span>SmartLabel ✅</span><span className="text-gray-500">Admin: {user.email.split('@')[0]}</span></div>
                      <div className="mb-3"><p className="text-xs text-gray-500 font-medium">ผู้ส่ง:</p><p className="font-bold text-sm">{storeProfile.name}</p></div>
-                     {order.parsedData.isCOD && <div className="bg-black text-white text-center py-2 mb-3 text-2xl font-black tracking-wider rounded-sm">COD: {order.parsedData.codAmount}</div>}
-                     <div className="bg-slate-50 p-3 mb-3 rounded-sm border border-slate-200 print:bg-white print:border"><p className="text-xs text-blue-600 font-black mb-1">ผู้รับ:</p><p className="text-xl font-black text-slate-800">{order.parsedData.customerName || 'ไม่มีชื่อ'}</p><p className="text-lg font-bold text-slate-700 mt-1">☎ {order.parsedData.phone || '-'}</p><p className="text-sm leading-relaxed mt-2 text-slate-600">{order.parsedData.address || 'ไม่มีที่อยู่'}</p></div>
+                     {order.parsedData.isCOD && <div className="bg-black text-white text-center py-2 mb-3 text-2xl font-black tracking-wider rounded-sm print:border-4 print:border-black">COD: {order.parsedData.codAmount}</div>}
+                     <div className="bg-slate-50 p-3 mb-3 rounded-sm border border-slate-200 print:bg-white print:border-black print:border-2"><p className="text-xs text-blue-600 font-black mb-1 print:text-black">ผู้รับ:</p><p className="text-xl font-black text-slate-800">{order.parsedData.customerName || 'ไม่มีชื่อ'}</p><p className="text-lg font-bold text-slate-700 mt-1">☎ {order.parsedData.phone || '-'}</p><p className="text-sm leading-relaxed mt-2 text-slate-600">{order.parsedData.address || 'ไม่มีที่อยู่'}</p></div>
                      <div className="text-center text-5xl font-black mb-4 tracking-widest text-slate-900">{order.parsedData.zipcode || '00000'}</div>
-                     
-                     {/* 🔥 แก้ไข QR Code ให้เล็กลง และเปลี่ยนเป็น REF: */}
-                     <div className="flex flex-col items-center border-t-2 border-b-2 border-slate-200 py-3 mb-3">
-                       <QRCodeSVG value={JSON.stringify({ id: order.id, cod: order.parsedData.isCOD ? order.parsedData.codAmount : 0, admin: user.email })} size={60} />
-                       <p className="text-[10px] mt-2 font-mono uppercase font-bold text-slate-500 tracking-widest">REF: #{String(order.id).slice(-6)}</p>
-                     </div>
-                     
+                     <div className="flex flex-col items-center border-t-2 border-b-2 border-slate-200 py-3 mb-3 print:border-black"><QRCodeSVG value={JSON.stringify({ id: order.id, cod: order.parsedData.isCOD ? order.parsedData.codAmount : 0, admin: user.email })} size={60} /><p className="text-[10px] mt-2 font-mono uppercase font-bold text-slate-500 tracking-widest">REF: #{String(order.id).slice(-6)}</p></div>
                      <div><p className="text-xs font-black text-slate-700 mb-1">รายการสินค้า:</p>{order.parsedData.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 font-medium text-slate-600">{order.parsedData.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-400 italic">- ไม่ระบุรายการ -</p>)}</div>
                   </div>
                 ))}
