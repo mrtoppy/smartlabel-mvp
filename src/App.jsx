@@ -98,7 +98,7 @@ export default function App() {
             setQuota(data.quota || 0);
             setUserOwnerId(data.ownerId || currentUser.uid);
           } else {
-            await setDoc(userRef, { email: currentUser.email, role: 'Owner', quota: 20, ownerId: currentUser.uid });
+            await setDoc(userRef, { email: currentUser.email, role: 'Owner', quota: 20, ownerId: currentUser.uid, createdAt: serverTimestamp() });
             setUserRole('Owner');
             setQuota(20);
             setUserOwnerId(currentUser.uid); 
@@ -279,7 +279,12 @@ export default function App() {
     setOrders(remaining.length === 0 ? [{ id: Date.now(), rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }] : remaining);
   };
 
-  const handleFocus = (id) => { if (labelRefs.current[id]) labelRefs.current[id].scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+  // 🔥 ฟังก์ชันพระเอกของเราอยู่นี่ครับ เลื่อนหน้าจอไปยังตำแหน่งที่อ้างอิง
+  const handleFocus = (id) => { 
+      if (labelRefs.current[id]) {
+          labelRefs.current[id].scrollIntoView({ behavior: 'smooth', block: 'center' }); 
+      }
+  };
 
   const handleSaveProfile = () => {
     setStoreProfile(tempProfile); localStorage.setItem('smartlabel_profile', JSON.stringify(tempProfile)); setIsSettingsOpen(false);
@@ -323,7 +328,7 @@ export default function App() {
     if (historyOrders.length === 0) return alert("ไม่มีข้อมูลให้ดาวน์โหลดครับ");
     const headers = ["วันที่สร้าง", "เลขพัสดุ", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "รหัสไปรษณีย์", "รายการสินค้า", "ยอด COD", "แอดมิน"];
     const csvRows = historyOrders.map(order => [
-      order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH') : '-', `TH-${order.id.slice(-6).toUpperCase()}`, `"${order.customerName || ''}"`, order.phone || '-', `"${order.address || ''}"`, order.zipcode || '-', `"${(order.items || []).join(' | ')}"`, order.isCOD ? order.codAmount : "0", order.adminEmail || '-'
+      order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH') : '-', `REF-${order.id.slice(-6).toUpperCase()}`, `"${order.customerName || ''}"`, order.phone || '-', `"${order.address || ''}"`, order.zipcode || '-', `"${(order.items || []).join(' | ')}"`, order.isCOD ? order.codAmount : "0", order.adminEmail || '-'
     ].join(','));
     const blob = new Blob(["\uFEFF" + headers.join(',') + '\n' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `SmartLabel_Orders.csv`; link.click();
@@ -347,7 +352,7 @@ export default function App() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 font-bold text-blue-600 animate-pulse">กำลังโหลดระบบ...</div>;
 
-  // --- 🔥 Landing Page (ทวงคืน Pricing & Footer ครบชุด!) ---
+  // --- Landing Page ---
   if (!user && !isAuthView) {
     return (
       <div className="min-h-screen bg-white font-sans text-gray-900 selection:bg-blue-200">
@@ -365,21 +370,18 @@ export default function App() {
           <button onClick={() => setIsAuthView(true)} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-full font-bold">เข้าสู่ระบบ</button>
         </nav>
         
-        {/* Hero Section */}
         <header className="px-6 py-20 text-center bg-gradient-to-b from-blue-50 to-white">
           <h1 className="text-5xl md:text-7xl font-black text-blue-900 mb-6 leading-tight hover:scale-[1.01] transition-transform">จ่าหน้าพัสดุไวขึ้น 10 เท่า <br/> <span className="text-blue-600">ด้วยสมองกลอัจฉริยะ</span></h1>
           <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">สกัดชื่อที่อยู่จากแชทลูกค้าอัตโนมัติ พร้อมระบบจดจำลูกค้าเก่า (CRM) และสถิติครบวงจร เพื่อแม่ค้าออนไลน์มือโปรเช่นคุณ</p>
           <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white text-xl px-12 py-4 rounded-full font-black shadow-xl animate-bounce mt-4">เริ่มทดลองใช้ฟรี 20 ใบ</button>
         </header>
         
-        {/* Features Section */}
         <section className="py-20 px-6 max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12">
            <div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-12 transition-transform duration-300 inline-block">🧠</div><h3 className="text-xl font-bold mb-2">Smart CRM</h3><p className="text-gray-500">พิมพ์แค่เบอร์โทร ข้อมูลชื่อและที่อยู่ลูกค้าเก่าเด้งขึ้นมาให้ทันที</p></div>
            <div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:-translate-y-2 transition-transform duration-300 inline-block">🖨️</div><h3 className="text-xl font-bold mb-2">Thermal Ready</h3><p className="text-gray-500">ออกแบบมาเพื่อเครื่องพิมพ์ความร้อน พิมพ์ออกมาสวยเป๊ะทุกใบ</p></div>
            <div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-[-12deg] transition-transform duration-300 inline-block">📊</div><h3 className="text-xl font-bold mb-2">Dashboard & Export</h3><p className="text-gray-500">ดูยอดส่งรายวัน และดาวน์โหลดข้อมูลเป็น Excel ได้ในคลิกเดียว</p></div>
         </section>
 
-        {/* 🔥 Pricing Section (กลับมาแล้วจ้า พร้อมความดุ๊กดิ๊ก!) */}
         <section className="py-24 bg-slate-50 border-t border-slate-100">
           <div className="max-w-4xl mx-auto px-6 text-center">
             <h2 className="text-4xl font-black mb-12 text-slate-800">ราคาแพ็กเกจที่คุณเลือกได้</h2>
@@ -403,14 +405,12 @@ export default function App() {
               </div>
             </div>
             
-            {/* Enterprise / Unlimited Tier Prompt */}
             <div className="mt-12 text-slate-500 font-medium bg-white p-6 rounded-2xl shadow-sm border border-slate-200 inline-block">
               ต้องการส่งไม่จำกัดจำนวน? แพ็กเกจ Unlimited ฿299/เดือน <button className="text-blue-600 font-bold hover:underline ml-2">ติดต่อทีมงาน</button>
             </div>
           </div>
         </section>
 
-        {/* Footer */}
         <footer className="py-12 bg-white border-t border-slate-100 text-center text-slate-400 text-sm font-medium">
            © 2026 ToppySmart Logistics. พัฒนาโดยพาร์ทเนอร์ & CTO Copilot
         </footer>
@@ -443,7 +443,7 @@ export default function App() {
     );
   }
 
-  // --- Print View ---
+  // --- Print View (อัปเดต QR Code เป็น REF: แล้ว) ---
   if (reprintOrder) {
     return (
       <div className="bg-white min-h-screen">
@@ -454,7 +454,13 @@ export default function App() {
            {reprintOrder.isCOD && <div className="bg-black text-white text-center py-2 mb-2 text-2xl font-bold">COD: {reprintOrder.codAmount}</div>}
            <div className="bg-gray-100 p-2 mb-2 print:bg-white print:border"><p className="text-xs text-blue-600 font-bold">ผู้รับ:</p><p className="text-xl font-bold">{reprintOrder.customerName || 'ไม่มีชื่อผู้รับ'}</p><p className="text-lg font-bold">☎ {reprintOrder.phone || '-'}</p><p className="text-sm leading-tight">{reprintOrder.address || 'ไม่มีที่อยู่'}</p></div>
            <div className="text-center text-4xl font-black mb-3 tracking-widest">{reprintOrder.zipcode || '00000'}</div>
-           <div className="flex flex-col items-center border-t border-b py-2 mb-2"><QRCodeSVG value={JSON.stringify({ id: reprintOrder.id, cod: reprintOrder.isCOD ? reprintOrder.codAmount : 0 })} size={80} /><p className="text-xs mt-1 font-mono">TH-SMART-{String(reprintOrder.id).slice(-6).toUpperCase()}</p></div>
+           
+           {/* 🔥 แก้ไข QR Code ให้เล็กลง และเปลี่ยนเป็น REF: */}
+           <div className="flex flex-col items-center border-t border-b py-2 mb-2">
+             <QRCodeSVG value={JSON.stringify({ id: reprintOrder.id, cod: reprintOrder.isCOD ? reprintOrder.codAmount : 0 })} size={60} />
+             <p className="text-[10px] mt-1 font-mono uppercase font-bold text-slate-500 tracking-widest">REF: #{String(reprintOrder.id).slice(-6)}</p>
+           </div>
+           
            <div><p className="text-xs font-bold">รายการสินค้า:</p>{reprintOrder.items && reprintOrder.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 mt-1 leading-tight">{reprintOrder.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-500 italic mt-1">- ไม่ระบุรายการ -</p>)}</div>
         </div>
       </div>
@@ -545,7 +551,16 @@ export default function App() {
                   <div key={order.id} className="mb-6 p-5 rounded-2xl border border-gray-100 bg-slate-50/50 hover:bg-white transition-colors group">
                     <div className="flex justify-between items-center mb-3"><label className="font-bold text-gray-500 bg-white px-3 py-1 rounded-lg text-sm shadow-sm border border-gray-100">ออเดอร์ที่ {index + 1} {order.isSaved && <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">💾 บันทึกแล้ว</span>}</label>{(order.rawText !== '' || orders.length > 1) && <button onClick={() => handleDeleteOrder(order.id)} className="text-rose-400 hover:text-rose-600 text-sm font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️ ลบ</button>}</div>
                     {order.crmSuggestion && <div className="mb-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl flex justify-between items-center shadow-sm animate-pulse"><div><p className="text-xs text-indigo-600 font-black mb-1">✨ พบประวัติลูกค้า!</p><p className="text-sm font-bold text-slate-800">{order.crmSuggestion.customerName}</p></div><button onClick={() => applyCrmData(order.id, order.crmSuggestion)} className="btn-cute bg-indigo-600 text-white text-xs font-bold py-2 px-4 rounded-lg shadow-md shadow-indigo-500/30">ใช้ข้อมูลนี้</button></div>}
-                    <textarea className={`w-full h-32 p-4 rounded-xl focus:outline-none focus:ring-4 resize-none transition-all shadow-inner ${boxColorClass}`} placeholder="วางที่อยู่ หรือ พิมพ์แค่เบอร์โทรศัพท์..." value={order.rawText} onChange={(e) => handleTextChange(order.id, e.target.value)} />
+                    
+                    {/* 🔥 ฟังก์ชัน onFocus กลับมาแล้วครับ! กล่องขวาจะเลื่อนตามแน่นอน */}
+                    <textarea 
+                      className={`w-full h-32 p-4 rounded-xl focus:outline-none focus:ring-4 resize-none transition-all shadow-inner ${boxColorClass}`} 
+                      placeholder="วางที่อยู่ หรือ พิมพ์แค่เบอร์โทรศัพท์..." 
+                      value={order.rawText} 
+                      onChange={(e) => handleTextChange(order.id, e.target.value)} 
+                      onFocus={() => handleFocus(order.id)} 
+                    />
+                    
                     {order.parsedData && order.parsedData.warnings.length > 0 && <div className="mt-3 text-sm font-bold text-rose-500 flex flex-col gap-1 bg-rose-50 p-3 rounded-lg border border-rose-100">{order.parsedData.warnings.map((w, i) => <span key={i}>⚠️ {w.replace('⚠️ ', '')}</span>)}</div>}
                   </div>
                 );
@@ -561,7 +576,13 @@ export default function App() {
                      {order.parsedData.isCOD && <div className="bg-black text-white text-center py-2 mb-3 text-2xl font-black tracking-wider rounded-sm">COD: {order.parsedData.codAmount}</div>}
                      <div className="bg-slate-50 p-3 mb-3 rounded-sm border border-slate-200 print:bg-white print:border"><p className="text-xs text-blue-600 font-black mb-1">ผู้รับ:</p><p className="text-xl font-black text-slate-800">{order.parsedData.customerName || 'ไม่มีชื่อ'}</p><p className="text-lg font-bold text-slate-700 mt-1">☎ {order.parsedData.phone || '-'}</p><p className="text-sm leading-relaxed mt-2 text-slate-600">{order.parsedData.address || 'ไม่มีที่อยู่'}</p></div>
                      <div className="text-center text-5xl font-black mb-4 tracking-widest text-slate-900">{order.parsedData.zipcode || '00000'}</div>
-                     <div className="flex flex-col items-center border-t-2 border-b-2 border-slate-200 py-3 mb-3"><QRCodeSVG value={JSON.stringify({ id: order.id, cod: order.parsedData.isCOD ? order.parsedData.codAmount : 0, admin: user.email })} size={90} /><p className="text-[10px] mt-2 font-mono uppercase font-bold text-slate-500 tracking-widest">TH-{String(order.id).slice(-6)}</p></div>
+                     
+                     {/* 🔥 แก้ไข QR Code ให้เล็กลง และเปลี่ยนเป็น REF: */}
+                     <div className="flex flex-col items-center border-t-2 border-b-2 border-slate-200 py-3 mb-3">
+                       <QRCodeSVG value={JSON.stringify({ id: order.id, cod: order.parsedData.isCOD ? order.parsedData.codAmount : 0, admin: user.email })} size={60} />
+                       <p className="text-[10px] mt-2 font-mono uppercase font-bold text-slate-500 tracking-widest">REF: #{String(order.id).slice(-6)}</p>
+                     </div>
+                     
                      <div><p className="text-xs font-black text-slate-700 mb-1">รายการสินค้า:</p>{order.parsedData.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 font-medium text-slate-600">{order.parsedData.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-400 italic">- ไม่ระบุรายการ -</p>)}</div>
                   </div>
                 ))}
