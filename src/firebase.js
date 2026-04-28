@@ -4,12 +4,13 @@ import { getFirestore } from "firebase/firestore";
 
 // TODO: เอา Config จาก Firebase Console ของพาร์ทเนอร์มาวางทับตรงนี้ครับ
 const firebaseConfig = {
-  apiKey: "AIzaSyYourAPIKeyHere...",
-  authDomain: "smartlabel-pro.firebaseapp.com",
-  projectId: "smartlabel-pro",
-  storageBucket: "smartlabel-pro.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abcdef"
+  apiKey: "AIzaSyDqRCBpJthakk9JuDevn0EieDRLrVUqR10",
+  authDomain: "smartlabel-90891.firebaseapp.com",
+  projectId: "smartlabel-90891",
+  storageBucket: "smartlabel-90891.firebasestorage.app",
+  messagingSenderId: "692671657416",
+  appId: "1:692671657416:web:15b5107260be704531fcfd",
+  measurementId: "G-4YT0GXW1YM"
 };
 
 // Initialize Firebase
