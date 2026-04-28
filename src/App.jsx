@@ -3,10 +3,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 import { auth, db } from './firebase'; 
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { collection, addDoc, getDocs, query, serverTimestamp, doc, getDoc, setDoc, where, updateDoc, increment } from "firebase/firestore";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, getAuth } from "firebase/auth";
+import { initializeApp, getApps } from "firebase/app";
+import { collection, addDoc, getDocs, query, serverTimestamp, doc, getDoc, setDoc, where, updateDoc, increment, deleteDoc } from "firebase/firestore";
 
-// --- ฟังก์ชันสกัดข้อความ (หัวใจของระบบ) ---
 const extractOrderData = (rawText) => {
   if (!rawText) return null;
   const cleanText = rawText.replace(/-/g, '');
@@ -19,10 +19,7 @@ const extractOrderData = (rawText) => {
   let codAmount = '';
   const codRegex = /(?:cod|ปลายทาง|เก็บเงินปลายทาง|ยอด)\s*[:=]?\s*([\d,]+)/i;
   const codMatch = cleanText.match(codRegex);
-  if (codMatch) {
-    isCOD = true;
-    codAmount = codMatch[1];
-  }
+  if (codMatch) { isCOD = true; codAmount = codMatch[1]; }
   
   let remainingText = cleanText;
   if (zipcode) remainingText = remainingText.replace(zipcode, '');
@@ -60,10 +57,13 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(''); 
   const [quota, setQuota] = useState(0); 
-  
+  const [userOwnerId, setUserOwnerId] = useState(null);
+
   const [isTopupOpen, setIsTopupOpen] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState(100); 
-  const [isAuthView, setIsAuthView] = useState(false); // ควบคุมหน้า Landing vs Login
+  
+  const [isAuthView, setIsAuthView] = useState(false); 
+  const [authMode, setAuthMode] = useState('login'); 
   
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('maker'); 
@@ -81,6 +81,9 @@ export default function App() {
 
   const [dashboardStats, setDashboardStats] = useState({ totalOrders: 0, codOrders: 0, totalCodAmount: 0, pieData: [], barData: [] });
   const [billingRequests, setBillingRequests] = useState([]);
+  
+  const [staffList, setStaffList] = useState([]);
+  const [newStaff, setNewStaff] = useState({ name: '', phone: '', role: 'Staff' });
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -90,16 +93,19 @@ export default function App() {
           const userRef = doc(db, "users", currentUser.uid);
           const userSnap = await getDoc(userRef);
           if (userSnap.exists()) {
-            setUserRole(userSnap.data().role);
-            setQuota(userSnap.data().quota || 0);
+            const data = userSnap.data();
+            setUserRole(data.role);
+            setQuota(data.quota || 0);
+            setUserOwnerId(data.ownerId || currentUser.uid);
           } else {
-            await setDoc(userRef, { email: currentUser.email, role: 'Owner', quota: 20 });
+            await setDoc(userRef, { email: currentUser.email, role: 'Owner', quota: 20, ownerId: currentUser.uid });
             setUserRole('Owner');
             setQuota(20);
+            setUserOwnerId(currentUser.uid); 
           }
         } catch (error) { console.error("Error:", error); }
       } else {
-        setUser(null); setUserRole(''); setQuota(0);
+        setUser(null); setUserRole(''); setQuota(0); setUserOwnerId(null);
       }
       setLoading(false);
     });
@@ -112,33 +118,29 @@ export default function App() {
   }, []);
 
   const loadDashboardData = async () => {
+    if (!userOwnerId) return; 
     try {
-      const q = query(collection(db, "orders"));
+      const q = query(collection(db, "orders"), where("ownerId", "==", userOwnerId));
       const querySnapshot = await getDocs(q);
+      
       let total = 0, codCount = 0, codSum = 0, transferCount = 0;
-      const dateMap = {};
-      const ordersList = [];
-
+      const dateMap = {}; const ordersList = [];
       querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        ordersList.push({ id: doc.id, ...data });
+        const data = doc.data(); ordersList.push({ id: doc.id, ...data });
         total++;
-        if (data.isCOD) { codCount++; codSum += data.codAmount || 0; } 
-        else { transferCount++; }
+        if (data.isCOD) { codCount++; codSum += data.codAmount || 0; } else { transferCount++; }
         if (data.createdAt) {
-           const dateObj = data.createdAt.toDate();
-           const dateStr = dateObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+           const dateStr = data.createdAt.toDate().toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
            if (!dateMap[dateStr]) dateMap[dateStr] = { name: dateStr, โอนเงิน: 0, COD: 0 };
            if (data.isCOD) dateMap[dateStr].COD += 1; else dateMap[dateStr].โอนเงิน += 1;
         }
       });
       ordersList.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
       setHistoryOrders(ordersList);
-      const sortedBarData = Object.values(dateMap).sort((a, b) => new Date(a.name) - new Date(b.name));
       setDashboardStats({
         totalOrders: total, codOrders: codCount, totalCodAmount: codSum,
         pieData: [{ name: 'โอนเงินแล้ว', value: transferCount }, { name: 'เก็บเงินปลายทาง', value: codCount }],
-        barData: sortedBarData.length > 0 ? sortedBarData : [{ name: 'รอข้อมูลใหม่', โอนเงิน: 0, COD: 0 }]
+        barData: Object.values(dateMap).sort((a, b) => new Date(a.name) - new Date(b.name)) || [{ name: 'รอข้อมูลใหม่', โอนเงิน: 0, COD: 0 }]
       });
     } catch (error) { console.error(error); }
   };
@@ -149,37 +151,103 @@ export default function App() {
       const querySnapshot = await getDocs(q);
       const requests = [];
       querySnapshot.forEach((doc) => { requests.push({ id: doc.id, data: doc.data() }); });
-      requests.sort((a, b) => (b.data.createdAt?.toMillis() || 0) - (a.data.createdAt?.toMillis() || 0));
-      setBillingRequests(requests);
+      setBillingRequests(requests.sort((a, b) => (b.data.createdAt?.toMillis() || 0) - (a.data.createdAt?.toMillis() || 0)));
     } catch (error) { console.error("Error loading bills:", error); }
+  };
+
+  const loadStaffData = async () => {
+    try {
+      const q = query(collection(db, "users"), where("ownerId", "==", user.uid));
+      const querySnapshot = await getDocs(q);
+      const staffs = [];
+      querySnapshot.forEach((doc) => { staffs.push({ id: doc.id, ...doc.data() }); });
+      setStaffList(staffs);
+    } catch (error) { console.error("Error loading staff:", error); }
   };
 
   useEffect(() => { 
     if (activeTab === 'dashboard') loadDashboardData(); 
     if (activeTab === 'billing' && userRole === 'SuperAdmin') loadBillingRequests();
-  }, [activeTab, userRole]);
+    if (activeTab === 'team' && (userRole === 'Owner' || userRole === 'SuperAdmin')) loadStaffData();
+  }, [activeTab, userRole, userOwnerId]); 
 
-  const handleLogin = async (e) => {
+  const handleAuth = async (e) => {
     e.preventDefault();
-    try { await signInWithEmailAndPassword(auth, e.target.email.value, e.target.password.value); } 
-    catch (error) { alert("อีเมลหรือรหัสผ่านไม่ถูกต้องครับ"); }
+    const email = e.target.email.value;
+    const password = e.target.password.value;
+    const formattedEmail = email.includes('@') ? email : `${email}@smartlabel.com`;
+
+    try {
+      if (authMode === 'login') {
+        await signInWithEmailAndPassword(auth, formattedEmail, password);
+      } else {
+        const storeName = e.target.storeName.value;
+        const userCredential = await createUserWithEmailAndPassword(auth, formattedEmail, password);
+        await setDoc(doc(db, "users", userCredential.user.uid), { 
+            email: formattedEmail, role: 'Owner', quota: 20, ownerId: userCredential.user.uid, createdAt: serverTimestamp() 
+        });
+        const initialProfile = { name: storeName, phone: '', address: '' };
+        setStoreProfile(initialProfile);
+        localStorage.setItem('smartlabel_profile', JSON.stringify(initialProfile));
+        alert("🎉 สมัครสมาชิกสำเร็จ! รับโควต้าทดลองใช้ฟรี 20 จ่าหน้าครับ");
+      }
+    } catch (error) { 
+      alert(authMode === 'login' ? "ข้อมูลเข้าสู่ระบบไม่ถูกต้องครับ" : "เกิดข้อผิดพลาด หรืออีเมลนี้มีในระบบแล้วครับ"); 
+    }
   };
-  const handleLogout = () => signOut(auth);
+
+  const handleLogout = () => { setActiveTab('maker'); signOut(auth); };
+
+  const handleAddStaff = async (e) => {
+    e.preventDefault();
+    if (newStaff.phone.length !== 10) return alert("กรุณากรอกเบอร์โทรศัพท์ 10 หลักครับ");
+    try {
+      let secondaryApp;
+      const appName = "SecondaryApp";
+      if (getApps().find(a => a.name === appName)) { secondaryApp = getApps().find(a => a.name === appName); } 
+      else { secondaryApp = initializeApp(auth.app.options, appName); }
+      const secondaryAuth = getAuth(secondaryApp);
+      
+      const staffEmail = `${newStaff.phone}@smartlabel.com`;
+      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, staffEmail, '123456');
+      const newUid = userCredential.user.uid;
+
+      await setDoc(doc(db, "users", newUid), { email: staffEmail, name: newStaff.name, phone: newStaff.phone, role: newStaff.role, ownerId: user.uid, createdAt: serverTimestamp() });
+      await signOut(secondaryAuth);
+      
+      alert(`เพิ่มพนักงานสำเร็จ! รหัสผ่านเริ่มต้นคือ: 123456`);
+      setNewStaff({ name: '', phone: '', role: 'Staff' });
+      loadStaffData();
+    } catch (error) { alert("เกิดข้อผิดพลาด หรือเบอร์โทรนี้ถูกใช้งานไปแล้วครับ"); }
+  };
+
+  const handleDeleteStaff = async (staffId) => {
+    if(window.confirm("ต้องการลบพนักงานคนนี้ออกจากระบบใช่หรือไม่?")) {
+      try { await deleteDoc(doc(db, "users", staffId)); loadStaffData(); } catch (error) { alert("ลบข้อมูลไม่สำเร็จครับ"); }
+    }
+  };
 
   const checkCustomerHistory = async (orderId, phone) => {
-    if (!phone || phone.length < 9) return;
+    if (!phone || phone.length < 9 || !userOwnerId) return;
     try {
       const q = query(collection(db, "orders"), where("phone", "==", phone));
       const querySnapshot = await getDocs(q);
       if (!querySnapshot.empty) {
-        const historyData = [];
-        querySnapshot.forEach((doc) => historyData.push(doc.data()));
-        historyData.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-        setOrders(prevOrders => prevOrders.map(order => order.id === orderId ? { ...order, crmSuggestion: historyData[0] } : order));
-      } else {
-        setOrders(prevOrders => prevOrders.map(order => order.id === orderId ? { ...order, crmSuggestion: null } : order));
-      }
-    } catch (error) { console.error("CRM Error:", error); }
+        const historyData = []; 
+        querySnapshot.forEach((doc) => {
+           if(doc.data().ownerId === userOwnerId) {
+               historyData.push(doc.data());
+           }
+        });
+        
+        if(historyData.length > 0) {
+            historyData.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+            setOrders(prev => prev.map(o => o.id === orderId ? { ...o, crmSuggestion: historyData[0] } : o));
+        } else {
+            setOrders(prev => prev.map(o => o.id === orderId ? { ...o, crmSuggestion: null } : o));
+        }
+      } else { setOrders(prev => prev.map(o => o.id === orderId ? { ...o, crmSuggestion: null } : o)); }
+    } catch (error) { console.error(error); }
   };
 
   const handleTextChange = (id, newText) => {
@@ -197,33 +265,30 @@ export default function App() {
   };
 
   const applyCrmData = (orderId, crmData) => {
-    setOrders(prevOrders => prevOrders.map(order => {
-      if (order.id === orderId) {
-        const newRawText = `${crmData.customerName}\n${crmData.address} ${crmData.zipcode}\n${order.rawText}`;
-        return { ...order, rawText: newRawText, parsedData: extractOrderData(newRawText), crmSuggestion: null };
+    setOrders(prev => prev.map(o => {
+      if (o.id === orderId) {
+        const newRawText = `${crmData.customerName}\n${crmData.address} ${crmData.zipcode}\n${o.rawText}`;
+        return { ...o, rawText: newRawText, parsedData: extractOrderData(newRawText), crmSuggestion: null };
       }
-      return order;
+      return o;
     }));
   };
 
   const handleDeleteOrder = (id) => {
-    const remainingOrders = orders.filter(order => order.id !== id);
-    setOrders(remainingOrders.length === 0 ? [{ id: Date.now(), rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }] : remainingOrders);
+    const remaining = orders.filter(o => o.id !== id);
+    setOrders(remaining.length === 0 ? [{ id: Date.now(), rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }] : remaining);
   };
 
-  const handleFocus = (id) => {
-    if (labelRefs.current[id]) labelRefs.current[id].scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
+  const handleFocus = (id) => { if (labelRefs.current[id]) labelRefs.current[id].scrollIntoView({ behavior: 'smooth', block: 'center' }); };
 
   const handleSaveProfile = () => {
-    setStoreProfile(tempProfile);
-    localStorage.setItem('smartlabel_profile', JSON.stringify(tempProfile));
-    setIsSettingsOpen(false);
+    setStoreProfile(tempProfile); localStorage.setItem('smartlabel_profile', JSON.stringify(tempProfile)); setIsSettingsOpen(false);
   };
 
   const handleSaveAndPrint = async () => {
     const readyToSaveOrders = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
-    if (userRole !== 'SuperAdmin' && readyToSaveOrders.length > quota) { setIsTopupOpen(true); return; }
+    if (userRole === 'Owner' && readyToSaveOrders.length > quota) { setIsTopupOpen(true); return; }
+
     if (readyToSaveOrders.length > 0) {
       try {
         for (const order of readyToSaveOrders) {
@@ -232,16 +297,17 @@ export default function App() {
             rawText: order.rawText, adminEmail: user.email, storeName: storeProfile.name,
             customerName: order.parsedData.customerName, phone: order.parsedData.phone,
             address: order.parsedData.address, zipcode: order.parsedData.zipcode,
-            items: order.parsedData.items, isCOD: order.parsedData.isCOD, codAmount: codNumber,
+            items: order.parsedData.items, isCOD: order.parsedData.isCOD, codAmount: codNumber, 
+            ownerId: userOwnerId, 
             createdAt: serverTimestamp() 
           });
         }
-        if (userRole !== 'SuperAdmin') {
+        if (userRole === 'Owner') {
           const userRef = doc(db, "users", user.uid);
           await updateDoc(userRef, { quota: increment(-readyToSaveOrders.length) });
           setQuota(prev => prev - readyToSaveOrders.length);
         }
-        setOrders(prevOrders => prevOrders.map(o => (o.parsedData && !o.isSaved && o.rawText.trim() !== '') ? { ...o, isSaved: true } : o));
+        setOrders(prev => prev.map(o => (o.parsedData && !o.isSaved && o.rawText.trim() !== '') ? { ...o, isSaved: true } : o));
       } catch (error) { alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ"); }
     }
     window.print();
@@ -251,18 +317,13 @@ export default function App() {
     setOrders([{ id: Date.now(), rawText: order.rawText || '', parsedData: extractOrderData(order.rawText || ''), isSaved: false, crmSuggestion: null }, { id: Date.now() + 1, rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }]);
     setActiveTab('maker'); window.scrollTo(0, 0); 
   };
-
-  const handleReprintHistory = (order) => {
-    setReprintOrder(order); setTimeout(() => { window.print(); setReprintOrder(null); }, 300); 
-  };
-
+  const handleReprintHistory = (order) => { setReprintOrder(order); setTimeout(() => { window.print(); setReprintOrder(null); }, 300); };
+  
   const handleExportCSV = () => {
     if (historyOrders.length === 0) return alert("ไม่มีข้อมูลให้ดาวน์โหลดครับ");
     const headers = ["วันที่สร้าง", "เลขพัสดุ", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "รหัสไปรษณีย์", "รายการสินค้า", "ยอด COD", "แอดมิน"];
-    const csvRows = filteredHistory.map(order => [
-      order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH') : '-',
-      `TH-SMART-${order.id.slice(-6).toUpperCase()}`, `"${order.customerName || ''}"`, order.phone || '-', `"${order.address || ''}"`,
-      order.zipcode || '-', `"${(order.items || []).join(' | ')}"`, order.isCOD ? order.codAmount : "0", order.adminEmail || '-'
+    const csvRows = historyOrders.map(order => [
+      order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH') : '-', `TH-${order.id.slice(-6).toUpperCase()}`, `"${order.customerName || ''}"`, order.phone || '-', `"${order.address || ''}"`, order.zipcode || '-', `"${(order.items || []).join(' | ')}"`, order.isCOD ? order.codAmount : "0", order.adminEmail || '-'
     ].join(','));
     const blob = new Blob(["\uFEFF" + headers.join(',') + '\n' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `SmartLabel_Orders.csv`; link.click();
@@ -270,10 +331,7 @@ export default function App() {
 
   const handleSubmitTopup = async () => {
     try {
-      await addDoc(collection(db, "topups"), {
-        email: user.email, uid: user.uid, requestedQuota: selectedPackage,
-        amount: selectedPackage === 100 ? 50 : 200, status: 'pending', createdAt: serverTimestamp()
-      });
+      await addDoc(collection(db, "topups"), { email: user.email, uid: user.uid, requestedQuota: selectedPackage, amount: selectedPackage === 100 ? 50 : 200, status: 'pending', createdAt: serverTimestamp() });
       alert("ส่งหลักฐานสำเร็จ! กรุณารอแอดมินอนุมัติครับ"); setIsTopupOpen(false);
     } catch (error) { alert("เกิดข้อผิดพลาดในการส่งคำขอ"); }
   };
@@ -283,215 +341,228 @@ export default function App() {
       await updateDoc(doc(db, "topups", requestId), { status: 'approved', approvedAt: serverTimestamp() });
       await updateDoc(doc(db, "users", userId), { quota: increment(requestedQuota) });
       if (userId === user.uid) setQuota(prev => prev + requestedQuota);
-      alert(`✅ อนุมัติสำเร็จ! เพิ่มโควต้า ${requestedQuota} ใบเรียบร้อย`);
       loadBillingRequests(); 
     } catch (error) { alert("เกิดข้อผิดพลาดในการอนุมัติ"); }
   };
 
-  const filteredHistory = historyOrders.filter(order => {
-    const term = searchQuery.toLowerCase();
-    return (order.customerName || '').toLowerCase().includes(term) || (order.phone || '').includes(term) || (order.id || '').toLowerCase().includes(term);
-  });
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 font-bold text-blue-600 animate-pulse">กำลังโหลดระบบ...</div>;
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 font-bold text-blue-600">กำลังโหลดระบบ...</div>;
-
-  // --- 🔥 Landing Page UI ---
+  // --- 🔥 Landing Page (ทวงคืน Pricing & Footer ครบชุด!) ---
   if (!user && !isAuthView) {
     return (
-      <div className="min-h-screen bg-white font-sans text-gray-900">
-        {/* Navbar */}
+      <div className="min-h-screen bg-white font-sans text-gray-900 selection:bg-blue-200">
+        <style>{`
+          @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+          .animate-float { animation: float 3s ease-in-out infinite; }
+          .btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+          .btn-cute:hover { transform: scale(1.05) translateY(-2px); box-shadow: 0 10px 20px -10px rgba(59, 130, 246, 0.5); }
+          .card-hover { transition: transform 0.3s ease, box-shadow 0.3s ease; }
+          .card-hover:hover { transform: translateY(-5px); box-shadow: 0 20px 30px -10px rgba(0,0,0,0.1); }
+        `}</style>
+        
         <nav className="flex justify-between items-center px-6 py-4 border-b">
-          <div className="text-2xl font-black text-blue-800">📦 SmartLabel</div>
-          <button onClick={() => setIsAuthView(true)} className="bg-blue-600 text-white px-6 py-2 rounded-full font-bold hover:bg-blue-700 transition shadow-md">เข้าสู่ระบบ</button>
+          <div className="text-2xl font-black text-blue-800 flex items-center gap-2"><span className="animate-float inline-block">📦</span> SmartLabel</div>
+          <button onClick={() => setIsAuthView(true)} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-full font-bold">เข้าสู่ระบบ</button>
         </nav>
-
+        
         {/* Hero Section */}
         <header className="px-6 py-20 text-center bg-gradient-to-b from-blue-50 to-white">
-          <h1 className="text-5xl md:text-7xl font-black text-blue-900 mb-6 leading-tight">
-            จ่าหน้าพัสดุไวขึ้น 10 เท่า <br/> <span className="text-blue-600">ด้วยสมองกลอัจฉริยะ</span>
-          </h1>
-          <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">
-            สกัดชื่อที่อยู่จากแชทลูกค้าอัตโนมัติ พร้อมระบบจดจำลูกค้าเก่า (CRM) และสถิติครบวงจร เพื่อแม่ค้าออนไลน์มือโปรเช่นคุณ
-          </p>
-          <button onClick={() => setIsAuthView(true)} className="bg-blue-600 text-white text-xl px-12 py-4 rounded-full font-black hover:scale-105 transition-all shadow-xl">
-            เริ่มทดลองใช้ฟรี 20 ใบ
-          </button>
-          <div className="mt-12 opacity-50 flex justify-center gap-8 grayscale italic font-bold">
-             <span>#แม่ค้าแฮปปี้</span> <span>#พิมพ์ไวไม่ง้อก๊อปปี้</span> <span>#สถิติแม่นยำ</span>
-          </div>
+          <h1 className="text-5xl md:text-7xl font-black text-blue-900 mb-6 leading-tight hover:scale-[1.01] transition-transform">จ่าหน้าพัสดุไวขึ้น 10 เท่า <br/> <span className="text-blue-600">ด้วยสมองกลอัจฉริยะ</span></h1>
+          <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">สกัดชื่อที่อยู่จากแชทลูกค้าอัตโนมัติ พร้อมระบบจดจำลูกค้าเก่า (CRM) และสถิติครบวงจร เพื่อแม่ค้าออนไลน์มือโปรเช่นคุณ</p>
+          <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white text-xl px-12 py-4 rounded-full font-black shadow-xl animate-bounce mt-4">เริ่มทดลองใช้ฟรี 20 ใบ</button>
         </header>
-
+        
         {/* Features Section */}
         <section className="py-20 px-6 max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12">
-           <div className="text-center">
-             <div className="text-5xl mb-4">🧠</div>
-             <h3 className="text-xl font-bold mb-2">Smart CRM</h3>
-             <p className="text-gray-500">พิมพ์แค่เบอร์โทร ข้อมูลชื่อและที่อยู่ลูกค้าเก่าเด้งขึ้นมาให้ทันที ไม่ต้องก๊อปวางซ้ำๆ</p>
-           </div>
-           <div className="text-center">
-             <div className="text-5xl mb-4">🖨️</div>
-             <h3 className="text-xl font-bold mb-2">Thermal Ready</h3>
-             <p className="text-gray-500">ออกแบบมาเพื่อเครื่องพิมพ์ความร้อน (100x150mm) โดยเฉพาะ พิมพ์ออกมาสวยเป๊ะทุกใบ</p>
-           </div>
-           <div className="text-center">
-             <div className="text-5xl mb-4">📊</div>
-             <h3 className="text-xl font-bold mb-2">Dashboard & Export</h3>
-             <p className="text-gray-500">ดูยอดส่งรายวัน แยกประเภทโอนเงิน/COD และดาวน์โหลดข้อมูลเป็น Excel ได้ในคลิกเดียว</p>
-           </div>
+           <div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-12 transition-transform duration-300 inline-block">🧠</div><h3 className="text-xl font-bold mb-2">Smart CRM</h3><p className="text-gray-500">พิมพ์แค่เบอร์โทร ข้อมูลชื่อและที่อยู่ลูกค้าเก่าเด้งขึ้นมาให้ทันที</p></div>
+           <div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:-translate-y-2 transition-transform duration-300 inline-block">🖨️</div><h3 className="text-xl font-bold mb-2">Thermal Ready</h3><p className="text-gray-500">ออกแบบมาเพื่อเครื่องพิมพ์ความร้อน พิมพ์ออกมาสวยเป๊ะทุกใบ</p></div>
+           <div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-[-12deg] transition-transform duration-300 inline-block">📊</div><h3 className="text-xl font-bold mb-2">Dashboard & Export</h3><p className="text-gray-500">ดูยอดส่งรายวัน และดาวน์โหลดข้อมูลเป็น Excel ได้ในคลิกเดียว</p></div>
         </section>
 
-        {/* Pricing Section */}
-        <section className="py-20 bg-gray-50">
+        {/* 🔥 Pricing Section (กลับมาแล้วจ้า พร้อมความดุ๊กดิ๊ก!) */}
+        <section className="py-24 bg-slate-50 border-t border-slate-100">
           <div className="max-w-4xl mx-auto px-6 text-center">
-            <h2 className="text-4xl font-bold mb-12">ราคาแพ็กเกจที่คุณเลือกได้</h2>
+            <h2 className="text-4xl font-black mb-12 text-slate-800">ราคาแพ็กเกจที่คุณเลือกได้</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="bg-white p-10 rounded-3xl shadow-lg border-2 border-gray-100">
-                 <p className="text-blue-600 font-bold mb-4">เริ่มต้นเบาๆ</p>
-                 <p className="text-6xl font-black mb-4">฿50</p>
-                 <p className="text-gray-500 mb-8">ได้รับ 100 จ่าหน้า <br/> (เพียง 0.5 บาทต่อใบ)</p>
-                 <button onClick={() => setIsAuthView(true)} className="w-full py-4 rounded-xl border-2 border-blue-600 text-blue-600 font-bold hover:bg-blue-50 transition">เลือกแพ็กเกจนี้</button>
+              <div className="bg-white p-10 rounded-3xl shadow-lg border border-slate-200 card-hover flex flex-col justify-between">
+                 <div>
+                   <p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">เริ่มต้นเบาๆ</p>
+                   <p className="text-6xl font-black mb-4 text-slate-800">฿50</p>
+                   <p className="text-slate-500 mb-8 font-medium">ได้รับ 100 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.5 บาท/ใบ)</span></p>
+                 </div>
+                 <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-xl border-2 border-blue-600 text-blue-600 font-bold hover:bg-blue-50">เริ่มต้นใช้งาน</button>
               </div>
-              <div className="bg-white p-10 rounded-3xl shadow-2xl border-4 border-blue-600 relative overflow-hidden">
-                 <div className="absolute top-0 right-0 bg-blue-600 text-white px-6 py-2 font-bold text-sm rounded-bl-2xl">ยอดฮิต</div>
-                 <p className="text-blue-600 font-bold mb-4">คุ้มค่าที่สุด</p>
-                 <p className="text-6xl font-black mb-4">฿200</p>
-                 <p className="text-gray-500 mb-8">ได้รับ 500 จ่าหน้า <br/> (เพียง 0.4 บาทต่อใบ)</p>
-                 <button onClick={() => setIsAuthView(true)} className="w-full py-4 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition">เลือกแพ็กเกจนี้</button>
+              <div className="bg-white p-10 rounded-3xl shadow-2xl border-4 border-blue-600 relative overflow-hidden card-hover transform md:-translate-y-4 flex flex-col justify-between">
+                 <div className="absolute top-0 right-0 bg-blue-600 text-white px-6 py-2 font-black text-sm rounded-bl-2xl shadow-sm tracking-widest">ยอดฮิต 🔥</div>
+                 <div>
+                   <p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">คุ้มค่าที่สุด</p>
+                   <p className="text-6xl font-black mb-4 text-slate-800">฿200</p>
+                   <p className="text-slate-500 mb-8 font-medium">ได้รับ 500 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.4 บาท/ใบ)</span></p>
+                 </div>
+                 <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-500/40">เลือกแพ็กเกจนี้</button>
               </div>
+            </div>
+            
+            {/* Enterprise / Unlimited Tier Prompt */}
+            <div className="mt-12 text-slate-500 font-medium bg-white p-6 rounded-2xl shadow-sm border border-slate-200 inline-block">
+              ต้องการส่งไม่จำกัดจำนวน? แพ็กเกจ Unlimited ฿299/เดือน <button className="text-blue-600 font-bold hover:underline ml-2">ติดต่อทีมงาน</button>
             </div>
           </div>
         </section>
 
-        <footer className="py-12 border-t text-center text-gray-400 text-sm">
+        {/* Footer */}
+        <footer className="py-12 bg-white border-t border-slate-100 text-center text-slate-400 text-sm font-medium">
            © 2026 ToppySmart Logistics. พัฒนาโดยพาร์ทเนอร์ & CTO Copilot
         </footer>
       </div>
     );
   }
 
-  // --- หน้า Login ---
+  // --- Login / Register View ---
   if (!user && isAuthView) {
     return (
-      <div className="min-h-screen bg-blue-900 flex flex-col items-center justify-center p-6 font-sans">
-        <button onClick={() => setIsAuthView(false)} className="text-blue-200 mb-8 hover:text-white transition">← กลับหน้าหลัก</button>
-        <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md">
-          <div className="text-center mb-8"><h1 className="text-4xl font-extrabold text-blue-800 mb-2">📦 SmartLabel</h1><p className="text-gray-500 italic">"จ่าหน้าอัจฉริยะ เพื่อมืออาชีพเช่นคุณ"</p></div>
-          <form onSubmit={handleLogin}>
-            <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-2">อีเมลผู้ใช้งาน</label><input name="email" type="email" required className="w-full border border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-blue-400 outline-none" placeholder="admin@toppysmart.com" /></div>
-            <div className="mb-6"><label className="block text-sm font-bold text-gray-700 mb-2">รหัสผ่าน</label><input name="password" type="password" required className="w-full border border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-blue-400 outline-none" placeholder="••••••••" /></div>
-            <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg transition-all shadow-lg transform hover:scale-[1.02]">เข้าสู่ระบบ</button>
+      <div className="min-h-screen bg-blue-900 flex flex-col items-center justify-center p-6 font-sans relative">
+        <style>{`.btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); } .btn-cute:hover { transform: scale(1.05); }`}</style>
+        <button onClick={() => setIsAuthView(false)} className="absolute top-6 left-6 text-blue-200 hover:text-white font-bold transition hover:-translate-x-1">← กลับหน้าหลัก</button>
+        <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md animate-[fadeIn_0.5s_ease-out]">
+          <div className="text-center mb-6">
+            <h1 className="text-4xl font-extrabold text-blue-800 mb-2 flex justify-center items-center gap-2"><span className="animate-bounce inline-block">📦</span> SmartLabel</h1>
+            <p className="text-gray-500 font-bold">{authMode === 'login' ? 'ยินดีต้อนรับกลับมา!' : 'เริ่มต้นความสำเร็จไปกับเรา'}</p>
+          </div>
+          <form onSubmit={handleAuth}>
+            {authMode === 'register' && (<div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">ชื่อร้านค้าของคุณ</label><input name="storeName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none bg-gray-50 transition-all" placeholder="เช่น ToppySmart Shop" /></div>)}
+            <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">{authMode === 'login' ? 'อีเมล หรือ เบอร์โทรศัพท์' : 'อีเมลของคุณ'}</label><input name="email" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none bg-gray-50 transition-all" placeholder={authMode === 'login' ? "เบอร์โทรศัพท์ หรือ อีเมล" : "owner@mail.com"} /></div>
+            <div className="mb-6"><label className="block text-sm font-bold text-gray-700 mb-1">รหัสผ่าน</label><input name="password" type="password" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none bg-gray-50 transition-all" placeholder="••••••••" /></div>
+            <button type="submit" className="btn-cute w-full bg-blue-600 text-white font-bold py-3 rounded-xl shadow-lg hover:shadow-blue-500/50">{authMode === 'login' ? 'เข้าสู่ระบบ' : '✨ สมัครสมาชิกฟรี'}</button>
           </form>
-          <p className="mt-6 text-center text-gray-400 text-xs">สำหรับพนักงาน: กรุณาขอรหัสผ่านจากเจ้าของร้าน</p>
+          <div className="mt-6 text-center border-t pt-4">
+            {authMode === 'login' ? <p className="text-sm text-gray-600">เจ้าของร้านคนใหม่? <button onClick={() => setAuthMode('register')} className="text-blue-600 font-bold hover:underline">เปิดร้านฟรี</button></p> : <p className="text-sm text-gray-600">มีบัญชีอยู่แล้ว? <button onClick={() => setAuthMode('login')} className="text-blue-600 font-bold hover:underline">เข้าสู่ระบบ</button></p>}
+          </div>
         </div>
       </div>
     );
   }
 
-  // --- หน้าแอปหลัก (หลังจาก Login) ---
+  // --- Print View ---
   if (reprintOrder) {
     return (
       <div className="bg-white min-h-screen">
         <style>{`@media print { @page { size: 100mm 150mm; margin: 0; } body { background-color: white; -webkit-print-color-adjust: exact; margin: 0; } .thermal-label { width: 100mm; height: 148mm; padding: 5mm; box-sizing: border-box; margin: 0; border: none; overflow: hidden; } }`}</style>
         <div className="w-full max-w-sm mx-auto p-4 thermal-label print:max-w-none print:m-0 print:p-2">
-           <div className="flex justify-between border-b pb-2 mb-2 font-bold text-sm"><span>SmartLabel ✅ (Reprint)</span><span className="text-gray-500">Admin: {reprintOrder.adminEmail?.split('@')[0]}</span></div>
+           <div className="flex justify-between border-b pb-2 mb-2 font-bold text-sm"><span>SmartLabel ✅</span><span className="text-gray-500">Admin: {reprintOrder.adminEmail?.split('@')[0]}</span></div>
            <div className="mb-3"><p className="text-xs text-gray-500">ผู้ส่ง:</p><p className="font-bold text-sm">{reprintOrder.storeName}</p></div>
-           {reprintOrder.isCOD && <div className="bg-black text-white text-center py-2 mb-2 text-2xl font-bold print:border-[3px] print:border-black">COD: {reprintOrder.codAmount}</div>}
-           <div className="bg-gray-100 p-2 mb-2 print:bg-white print:border print:border-gray-400"><p className="text-xs text-blue-600 font-bold print:text-black">ผู้รับ:</p><p className="text-xl font-bold">{reprintOrder.customerName || 'ไม่มีชื่อผู้รับ'}</p><p className="text-lg font-bold">☎ {reprintOrder.phone || '-'}</p><p className="text-sm leading-tight">{reprintOrder.address || 'ไม่มีที่อยู่'}</p></div>
+           {reprintOrder.isCOD && <div className="bg-black text-white text-center py-2 mb-2 text-2xl font-bold">COD: {reprintOrder.codAmount}</div>}
+           <div className="bg-gray-100 p-2 mb-2 print:bg-white print:border"><p className="text-xs text-blue-600 font-bold">ผู้รับ:</p><p className="text-xl font-bold">{reprintOrder.customerName || 'ไม่มีชื่อผู้รับ'}</p><p className="text-lg font-bold">☎ {reprintOrder.phone || '-'}</p><p className="text-sm leading-tight">{reprintOrder.address || 'ไม่มีที่อยู่'}</p></div>
            <div className="text-center text-4xl font-black mb-3 tracking-widest">{reprintOrder.zipcode || '00000'}</div>
            <div className="flex flex-col items-center border-t border-b py-2 mb-2"><QRCodeSVG value={JSON.stringify({ id: reprintOrder.id, cod: reprintOrder.isCOD ? reprintOrder.codAmount : 0 })} size={80} /><p className="text-xs mt-1 font-mono">TH-SMART-{String(reprintOrder.id).slice(-6).toUpperCase()}</p></div>
-           <div><p className="text-xs font-bold">รายการสินค้า (Items):</p>{reprintOrder.items && reprintOrder.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 mt-1 leading-tight">{reprintOrder.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-500 italic mt-1">- ไม่ระบุรายการ -</p>)}</div>
+           <div><p className="text-xs font-bold">รายการสินค้า:</p>{reprintOrder.items && reprintOrder.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 mt-1 leading-tight">{reprintOrder.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-500 italic mt-1">- ไม่ระบุรายการ -</p>)}</div>
         </div>
       </div>
     );
   }
 
+  // --- Main Dashboard View ---
   return (
-    <div className="min-h-screen bg-gray-100 p-6 font-sans print:bg-white print:p-0 relative">
-      <style>{`@media print { @page { size: 100mm 150mm; margin: 0; } body { background-color: white; -webkit-print-color-adjust: exact; margin: 0; } .thermal-label { width: 100mm; height: 148mm; padding: 5mm; box-sizing: border-box; page-break-after: always; margin: 0 auto; border: none !important; overflow: hidden; } }`}</style>
+    <div className="min-h-screen bg-slate-50 p-6 font-sans print:bg-white print:p-0 relative">
+      <style>{`
+        @media print { @page { size: 100mm 150mm; margin: 0; } body { background-color: white; -webkit-print-color-adjust: exact; margin: 0; } .thermal-label { width: 100mm; height: 148mm; padding: 5mm; box-sizing: border-box; page-break-after: always; margin: 0 auto; border: none !important; overflow: hidden; } }
+        .btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .btn-cute:hover { transform: scale(1.05) translateY(-2px); box-shadow: 0 5px 15px -5px rgba(0,0,0,0.2); }
+        .card-hover { transition: transform 0.3s ease, box-shadow 0.3s ease; }
+        .card-hover:hover { transform: translateY(-5px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); }
+      `}</style>
       
-      {/* Modals & Header (เหมือนเดิมที่พาร์ทเนอร์มี) */}
       {isTopupOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 print:hidden">
-          <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-lg">
-            <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">🚀 เติมแพ็กเกจจ่าหน้า</h2><button onClick={() => setIsTopupOpen(false)} className="text-gray-400 hover:text-red-500 font-bold text-xl">&times;</button></div>
-            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl mb-6 text-center"><p className="text-gray-600 mb-1">โควต้าปัจจุบันของคุณ</p><p className="text-4xl font-extrabold text-blue-600">{quota} <span className="text-lg font-normal text-blue-800">ใบ</span></p></div>
-            <h3 className="font-bold text-gray-700 mb-3">1. เลือกแพ็กเกจที่ต้องการ</h3>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 print:hidden transition-opacity">
+          <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-lg animate-[fadeIn_0.3s_ease-out]">
+            <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">🚀 เติมแพ็กเกจจ่าหน้า</h2><button onClick={() => setIsTopupOpen(false)} className="text-gray-400 hover:text-red-500 hover:rotate-90 transition-transform font-bold text-2xl">&times;</button></div>
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-2xl mb-6 text-center card-hover"><p className="text-gray-600 mb-1">โควต้าปัจจุบันของคุณ</p><p className="text-4xl font-extrabold text-blue-600">{quota} <span className="text-lg font-normal text-blue-800">ใบ</span></p></div>
+            <h3 className="font-bold text-gray-700 mb-3">1. เลือกแพ็กเกจ</h3>
             <div className="grid grid-cols-2 gap-3 mb-6">
-              <div onClick={() => setSelectedPackage(100)} className={`border-2 rounded-lg p-3 text-center cursor-pointer relative overflow-hidden transition ${selectedPackage === 100 ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-300'}`}>{selectedPackage === 100 && <div className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg">เลือกอยู่</div>}<p className={`font-bold text-lg ${selectedPackage === 100 ? 'text-blue-800' : 'text-gray-800'}`}>100 ใบ</p><p className="text-sm text-gray-600">50 บาท</p></div>
-              <div onClick={() => setSelectedPackage(500)} className={`border-2 rounded-lg p-3 text-center cursor-pointer relative overflow-hidden transition ${selectedPackage === 500 ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-300'}`}>{selectedPackage === 500 && <div className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg">เลือกอยู่</div>}<p className={`font-bold text-lg ${selectedPackage === 500 ? 'text-blue-800' : 'text-gray-800'}`}>500 ใบ</p><p className="text-sm text-gray-600">200 บาท</p></div>
+              <div onClick={() => setSelectedPackage(100)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 100 ? 'border-blue-500 bg-blue-50 scale-[1.02]' : 'border-gray-200 hover:border-blue-300 hover:bg-slate-50'}`}>{selectedPackage === 100 && <div className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">เลือกอยู่</div>}<p className={`font-bold text-xl ${selectedPackage === 100 ? 'text-blue-800' : 'text-gray-800'}`}>100 ใบ</p><p className="text-sm text-gray-600 mt-1">50 บาท</p></div>
+              <div onClick={() => setSelectedPackage(500)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 500 ? 'border-blue-500 bg-blue-50 scale-[1.02]' : 'border-gray-200 hover:border-blue-300 hover:bg-slate-50'}`}>{selectedPackage === 500 && <div className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">เลือกอยู่</div>}<p className={`font-bold text-xl ${selectedPackage === 500 ? 'text-blue-800' : 'text-gray-800'}`}>500 ใบ</p><p className="text-sm text-gray-600 mt-1">200 บาท</p></div>
             </div>
-            <h3 className="font-bold text-gray-700 mb-3">2. สแกนชำระเงิน (PromptPay)</h3>
-            <div className="flex flex-col items-center bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6"><div className="bg-white p-2 rounded-lg shadow-sm mb-2"><QRCodeSVG value="0812345678" size={120} /></div><p className="text-sm font-bold text-gray-700">บจก. ท็อปปี้สมาร์ท โลจิสติกส์</p><p className="text-xs text-gray-500">ยอดชำระ: {selectedPackage === 100 ? '50.00' : '200.00'} บาท</p></div>
-            <h3 className="font-bold text-gray-700 mb-3">3. แนบสลิปโอนเงิน</h3>
-            <div className="mb-6"><input type="file" accept="image/*" className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" /></div>
-            <button onClick={handleSubmitTopup} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-lg shadow-lg transition-transform transform hover:scale-[1.02]">ยืนยันการชำระเงิน</button>
+            <button onClick={handleSubmitTopup} className="btn-cute w-full bg-green-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-green-500/30">ยืนยันการชำระเงิน (จำลอง)</button>
           </div>
         </div>
       )}
 
-      <header className="mb-6 bg-white p-4 rounded-lg shadow-sm print:hidden">
-        <div className="flex justify-between items-center mb-4">
+      {isSettingsOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 print:hidden">
+          <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md animate-[fadeIn_0.3s_ease-out]">
+            <h2 className="text-2xl font-bold mb-6 text-gray-800">⚙️ ตั้งค่าข้อมูลร้านค้า</h2>
+            <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-2">ชื่อร้านค้า (ผู้ส่ง)</label><input type="text" className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all" value={tempProfile.name} onChange={(e) => setTempProfile({...tempProfile, name: e.target.value})} /></div>
+            <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-2">เบอร์โทรศัพท์</label><input type="text" className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all" value={tempProfile.phone} onChange={(e) => setTempProfile({...tempProfile, phone: e.target.value})} /></div>
+            <div className="mb-8"><label className="block text-sm font-bold text-gray-700 mb-2">ที่อยู่ร้านค้า</label><textarea className="w-full border p-3 rounded-xl h-24 resize-none focus:ring-4 focus:ring-blue-100 outline-none transition-all" value={tempProfile.address} onChange={(e) => setTempProfile({...tempProfile, address: e.target.value})} /></div>
+            <div className="flex justify-end gap-3"><button onClick={() => setIsSettingsOpen(false)} className="btn-cute px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold">ยกเลิก</button><button onClick={handleSaveProfile} className="btn-cute px-6 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-500/30">💾 บันทึก</button></div>
+          </div>
+        </div>
+      )}
+
+      <header className="mb-6 bg-white p-5 rounded-2xl shadow-sm border border-gray-100 print:hidden">
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-5">
           <div>
-            <h1 className="text-3xl font-bold text-blue-800 flex items-center gap-2">📦 SmartLabel <span className={`text-sm px-2 py-1 rounded-full ${userRole === 'SuperAdmin' ? 'bg-red-100 text-red-700 border border-red-200' : userRole === 'Owner' ? 'bg-purple-100 text-purple-700' : userRole === 'Admin' ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-700'}`}>{userRole}</span></h1>
-            <p className="text-gray-600 text-sm">ผู้ใช้งาน: {user.email}</p>
+            <h1 className="text-3xl font-black text-blue-800 flex items-center gap-2">📦 SmartLabel <span className={`text-xs px-3 py-1 rounded-full font-bold shadow-sm ${userRole === 'SuperAdmin' ? 'bg-gradient-to-r from-red-500 to-rose-500 text-white' : userRole === 'Owner' ? 'bg-gradient-to-r from-purple-500 to-fuchsia-500 text-white' : userRole === 'Admin' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>{userRole}</span></h1>
+            <p className="text-gray-500 text-sm mt-1 font-medium">ผู้ใช้งาน: {user.email.replace('@smartlabel.com', '')}</p>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex bg-gray-100 p-1 rounded-lg">
-              <button onClick={() => setActiveTab('maker')} className={`px-4 py-2 rounded-md font-bold transition-all text-sm ${activeTab === 'maker' ? 'bg-white text-blue-600 shadow' : 'text-gray-500'}`}>✍️ สร้างจ่าหน้า</button>
-              {(userRole === 'SuperAdmin' || userRole === 'Owner' || userRole === 'Admin') && <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-md font-bold transition-all text-sm ${activeTab === 'dashboard' ? 'bg-white text-blue-600 shadow' : 'text-gray-500'}`}>📊 สถิติ & ประวัติ</button>}
-              {userRole === 'SuperAdmin' && <button onClick={() => setActiveTab('billing')} className={`px-4 py-2 rounded-md font-bold transition-all text-sm ${activeTab === 'billing' ? 'bg-white text-blue-600 shadow' : 'text-gray-500'}`}>💳 จัดการบิล {billingRequests.length > 0 && <span className="ml-1 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">{billingRequests.length}</span>}</button>}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex bg-slate-100 p-1.5 rounded-xl">
+              <button onClick={() => setActiveTab('maker')} className={`btn-cute px-5 py-2.5 rounded-lg font-bold text-sm ${activeTab === 'maker' ? 'bg-white text-blue-600 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}>✍️ สร้างจ่าหน้า</button>
+              {(userRole === 'SuperAdmin' || userRole === 'Owner' || userRole === 'Admin') && <button onClick={() => setActiveTab('dashboard')} className={`btn-cute px-5 py-2.5 rounded-lg font-bold text-sm ${activeTab === 'dashboard' ? 'bg-white text-blue-600 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}>📊 สถิติ</button>}
+              {(userRole === 'Owner' || userRole === 'SuperAdmin') && <button onClick={() => setActiveTab('team')} className={`btn-cute px-5 py-2.5 rounded-lg font-bold text-sm ${activeTab === 'team' ? 'bg-white text-blue-600 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}>👥 พนักงาน</button>}
+              {userRole === 'SuperAdmin' && <button onClick={() => setActiveTab('billing')} className={`btn-cute px-5 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 ${activeTab === 'billing' ? 'bg-white text-blue-600 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}>💳 บิล {billingRequests.length > 0 && <span className="bg-red-500 text-white px-2 py-0.5 rounded-full text-xs animate-bounce">{billingRequests.length}</span>}</button>}
             </div>
-            <button onClick={handleLogout} className="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg font-bold text-sm transition-all">ออกจากระบบ 🚪</button>
+            <button onClick={handleLogout} className="btn-cute bg-red-50 text-red-600 px-5 py-3 rounded-xl font-bold text-sm hover:bg-red-100">ออก 🚪</button>
           </div>
         </div>
-        <div className="flex justify-between items-center bg-blue-50 p-3 rounded border border-blue-100">
-          <div className="text-sm text-blue-800 flex items-center gap-3">
-            {(userRole === 'Owner' || userRole === 'SuperAdmin' || userRole === 'Admin') && (
-              <span className="font-bold text-purple-700 border-r border-blue-200 pr-3 flex items-center gap-1">
-                🎫 โควต้าคงเหลือ: <span className={`${quota <= 5 && userRole !== 'SuperAdmin' ? 'text-red-500 animate-pulse' : ''}`}>{userRole === 'SuperAdmin' ? '∞' : quota} ใบ</span>
-                {userRole !== 'SuperAdmin' && <button onClick={() => setIsTopupOpen(true)} className="ml-2 bg-purple-600 text-white px-2 py-0.5 rounded text-xs hover:bg-purple-700 transition">➕ เติม</button>}
-              </span>
-            )}
-            <span><span className="font-bold">ร้าน:</span> {storeProfile.name}</span>
+        
+        {(userRole === 'Owner' || userRole === 'SuperAdmin') && (
+          <div className="flex justify-between items-center bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl border border-blue-100 shadow-inner">
+            <div className="text-sm flex items-center gap-4">
+                <div className="font-bold text-indigo-700 bg-white px-4 py-2 rounded-lg shadow-sm flex items-center gap-2">
+                  🎫 โควต้า: <span className={`text-lg ${quota <= 5 && userRole !== 'SuperAdmin' ? 'text-red-500 animate-pulse' : 'text-indigo-900'}`}>{userRole === 'SuperAdmin' ? '∞' : quota} ใบ</span>
+                  {userRole !== 'SuperAdmin' && <button onClick={() => setIsTopupOpen(true)} className="btn-cute ml-2 bg-indigo-600 text-white px-3 py-1 rounded-md text-xs shadow-md shadow-indigo-500/30">➕ เติม</button>}
+                </div>
+              <span className="text-slate-600 font-medium"><span className="text-slate-400 mr-1">📍 ร้าน:</span>{storeProfile.name}</span>
+            </div>
+            <button onClick={() => setIsSettingsOpen(true)} className="btn-cute bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-bold text-sm shadow-sm hover:bg-slate-50">⚙️ ตั้งค่า</button>
           </div>
-          {(userRole === 'Owner' || userRole === 'SuperAdmin') && <button onClick={() => setIsSettingsOpen(true)} className="text-xs bg-white border border-blue-200 text-blue-600 px-3 py-1 rounded hover:bg-blue-100 font-bold">⚙️ ตั้งค่าร้านค้า</button>}
-        </div>
+        )}
       </header>
 
-      {/* --- การแสดงผลตาม Tab (Copy จากโค้ดเดิมพาร์ทเนอร์มาใส่ที่นี่ได้เลยครับ ผมขอย่อไว้เพื่อให้โค้ดไม่ยาวเกินไป) --- */}
-      {activeTab === 'maker' || userRole === 'Staff' ? (
-         // ... (ใส่ UI Tab Maker เดิม) ...
-         <div className="flex flex-col md:flex-row gap-6 print:block">
-            <div className="flex-1 bg-white p-6 rounded-lg shadow-md border-t-4 border-blue-500 max-h-[70vh] overflow-y-auto print:hidden">
-              <h2 className="text-xl font-semibold mb-4 text-gray-800">1. วางข้อความแชต</h2>
+      {/* --- Tab Content --- */}
+      {activeTab === 'maker' ? (
+         <div className="flex flex-col lg:flex-row gap-6 print:block">
+            <div className="flex-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 max-h-[75vh] overflow-y-auto print:hidden">
+              <h2 className="text-xl font-black mb-6 text-gray-800 flex items-center gap-2"><span className="text-blue-500">1.</span> วางข้อความแชต</h2>
               {orders.map((order, index) => {
-                let boxColorClass = 'border-gray-300 focus:ring-blue-400';
+                let boxColorClass = 'border-gray-200 focus:ring-blue-300';
                 if (order.parsedData) {
                   const hasWarnings = order.parsedData.warnings.length > 0;
-                  boxColorClass = order.parsedData.isCOD ? (hasWarnings ? 'border-red-400 bg-orange-50 focus:ring-orange-500' : 'border-orange-400 bg-orange-50 focus:ring-orange-500') : (hasWarnings ? 'border-red-400 bg-red-50 focus:ring-red-500' : 'border-green-400 bg-green-50 focus:ring-green-500');
+                  boxColorClass = order.parsedData.isCOD ? (hasWarnings ? 'border-orange-400 bg-orange-50/50' : 'border-orange-500 bg-orange-50 ring-2 ring-orange-200') : (hasWarnings ? 'border-rose-400 bg-rose-50/50' : 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200');
                 }
                 return (
-                  <div key={order.id} className="mb-6 border-b pb-4 border-gray-100">
-                    <div className="flex justify-between items-end mb-2"><label className="block text-sm font-bold text-gray-500">ออเดอร์ที่ {index + 1} {order.isSaved && <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">💾 บันทึกแล้ว</span>}</label>{(order.rawText !== '' || orders.length > 1) && <button onClick={() => handleDeleteOrder(order.id)} className="text-red-400 hover:text-red-600 text-sm font-bold transition flex items-center gap-1">🗑️ ลบ</button>}</div>
-                    {order.crmSuggestion && <div className="mb-2 p-3 bg-blue-50 border border-blue-200 rounded-md flex justify-between items-center animate-pulse"><div><p className="text-xs text-blue-500 font-bold">✨ พบประวัติ!</p><p className="text-sm font-bold">{order.crmSuggestion.customerName}</p></div><button onClick={() => applyCrmData(order.id, order.crmSuggestion)} className="bg-blue-600 text-white text-xs font-bold py-2 px-3 rounded shadow-md">ใช้ข้อมูลนี้เลย</button></div>}
-                    <textarea className={`w-full h-32 p-4 border rounded-md focus:outline-none focus:ring-2 resize-none transition-all ${boxColorClass}`} placeholder="วางที่อยู่..." value={order.rawText} onChange={(e) => handleTextChange(order.id, e.target.value)} />
-                    {order.parsedData && order.parsedData.warnings.length > 0 && <div className="mt-2 text-sm font-bold text-red-500 flex flex-col">{order.parsedData.warnings.map((w, i) => <span key={i}>{w}</span>)}</div>}
+                  <div key={order.id} className="mb-6 p-5 rounded-2xl border border-gray-100 bg-slate-50/50 hover:bg-white transition-colors group">
+                    <div className="flex justify-between items-center mb-3"><label className="font-bold text-gray-500 bg-white px-3 py-1 rounded-lg text-sm shadow-sm border border-gray-100">ออเดอร์ที่ {index + 1} {order.isSaved && <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">💾 บันทึกแล้ว</span>}</label>{(order.rawText !== '' || orders.length > 1) && <button onClick={() => handleDeleteOrder(order.id)} className="text-rose-400 hover:text-rose-600 text-sm font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️ ลบ</button>}</div>
+                    {order.crmSuggestion && <div className="mb-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl flex justify-between items-center shadow-sm animate-pulse"><div><p className="text-xs text-indigo-600 font-black mb-1">✨ พบประวัติลูกค้า!</p><p className="text-sm font-bold text-slate-800">{order.crmSuggestion.customerName}</p></div><button onClick={() => applyCrmData(order.id, order.crmSuggestion)} className="btn-cute bg-indigo-600 text-white text-xs font-bold py-2 px-4 rounded-lg shadow-md shadow-indigo-500/30">ใช้ข้อมูลนี้</button></div>}
+                    <textarea className={`w-full h-32 p-4 rounded-xl focus:outline-none focus:ring-4 resize-none transition-all shadow-inner ${boxColorClass}`} placeholder="วางที่อยู่ หรือ พิมพ์แค่เบอร์โทรศัพท์..." value={order.rawText} onChange={(e) => handleTextChange(order.id, e.target.value)} />
+                    {order.parsedData && order.parsedData.warnings.length > 0 && <div className="mt-3 text-sm font-bold text-rose-500 flex flex-col gap-1 bg-rose-50 p-3 rounded-lg border border-rose-100">{order.parsedData.warnings.map((w, i) => <span key={i}>⚠️ {w.replace('⚠️ ', '')}</span>)}</div>}
                   </div>
                 );
               })}
             </div>
-            <div className="flex-1 bg-gray-50 rounded-lg shadow-inner border-2 border-dashed border-gray-300 max-h-[70vh] overflow-y-auto print:bg-white print:border-none relative">
-               <div className="sticky top-0 bg-white border-b-2 border-gray-200 p-4 flex justify-between items-center z-10 print:hidden"><h2 className="text-xl font-semibold">2. ตรวจสอบและสั่งพิมพ์</h2><button onClick={handleSaveAndPrint} className="bg-blue-600 text-white font-bold py-2 px-6 rounded-md shadow-lg transition-transform transform hover:scale-105">💾 บันทึก & สั่งพิมพ์</button></div>
-               <div className="p-6 print:p-0">
+            <div className="flex-1 bg-slate-100/50 rounded-2xl shadow-inner border-2 border-dashed border-slate-300 max-h-[75vh] overflow-y-auto print:bg-white print:border-none relative">
+               <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 p-5 flex justify-between items-center z-10 print:hidden"><h2 className="text-xl font-black text-gray-800 flex items-center gap-2"><span className="text-blue-500">2.</span> ตรวจสอบและสั่งพิมพ์</h2><button onClick={handleSaveAndPrint} className="btn-cute bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2">💾 บันทึก & สั่งพิมพ์</button></div>
+               <div className="p-8 print:p-0">
                 {orders.filter(o => o.parsedData).map((order) => (
-                  <div key={order.id} ref={(el) => (labelRefs.current[order.id] = el)} className="w-full max-w-sm mx-auto mb-8 bg-white border-2 border-black p-4 thermal-label">
-                     <div className="flex justify-between border-b pb-2 mb-2 font-bold text-sm"><span>SmartLabel ✅</span><span className="text-gray-500">Admin: {user.email.split('@')[0]}</span></div>
-                     <div className="mb-3"><p className="text-xs text-gray-500">ผู้ส่ง:</p><p className="font-bold text-sm">{storeProfile.name}</p></div>
-                     {order.parsedData.isCOD && <div className="bg-black text-white text-center py-2 mb-2 text-2xl font-bold">COD: {order.parsedData.codAmount}</div>}
-                     <div className="bg-gray-100 p-2 mb-2 print:bg-white print:border"><p className="text-xs text-blue-600 font-bold">ผู้รับ:</p><p className="text-xl font-bold">{order.parsedData.customerName || 'ไม่มีชื่อ'}</p><p className="text-lg font-bold">☎ {order.parsedData.phone || '-'}</p><p className="text-sm leading-tight">{order.parsedData.address || 'ไม่มีที่อยู่'}</p></div>
-                     <div className="text-center text-4xl font-black mb-3 tracking-widest">{order.parsedData.zipcode || '00000'}</div>
-                     <div className="flex flex-col items-center border-t border-b py-2 mb-2"><QRCodeSVG value={JSON.stringify({ id: order.id, cod: order.parsedData.isCOD ? order.parsedData.codAmount : 0, admin: user.email })} size={80} /><p className="text-xs mt-1 font-mono uppercase">TH-SMART-{String(order.id).slice(-6)}</p></div>
-                     <div><p className="text-xs font-bold">รายการสินค้า:</p>{order.parsedData.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4">{order.parsedData.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-400 italic">- ไม่ระบุรายการ -</p>)}</div>
+                  <div key={order.id} ref={(el) => (labelRefs.current[order.id] = el)} className="w-full max-w-sm mx-auto mb-10 bg-white border-2 border-black p-4 thermal-label shadow-xl card-hover print:shadow-none">
+                     <div className="flex justify-between border-b-2 border-slate-200 pb-2 mb-3 font-bold text-sm"><span>SmartLabel ✅</span><span className="text-gray-500">Admin: {user.email.split('@')[0]}</span></div>
+                     <div className="mb-3"><p className="text-xs text-gray-500 font-medium">ผู้ส่ง:</p><p className="font-bold text-sm">{storeProfile.name}</p></div>
+                     {order.parsedData.isCOD && <div className="bg-black text-white text-center py-2 mb-3 text-2xl font-black tracking-wider rounded-sm">COD: {order.parsedData.codAmount}</div>}
+                     <div className="bg-slate-50 p-3 mb-3 rounded-sm border border-slate-200 print:bg-white print:border"><p className="text-xs text-blue-600 font-black mb-1">ผู้รับ:</p><p className="text-xl font-black text-slate-800">{order.parsedData.customerName || 'ไม่มีชื่อ'}</p><p className="text-lg font-bold text-slate-700 mt-1">☎ {order.parsedData.phone || '-'}</p><p className="text-sm leading-relaxed mt-2 text-slate-600">{order.parsedData.address || 'ไม่มีที่อยู่'}</p></div>
+                     <div className="text-center text-5xl font-black mb-4 tracking-widest text-slate-900">{order.parsedData.zipcode || '00000'}</div>
+                     <div className="flex flex-col items-center border-t-2 border-b-2 border-slate-200 py-3 mb-3"><QRCodeSVG value={JSON.stringify({ id: order.id, cod: order.parsedData.isCOD ? order.parsedData.codAmount : 0, admin: user.email })} size={90} /><p className="text-[10px] mt-2 font-mono uppercase font-bold text-slate-500 tracking-widest">TH-{String(order.id).slice(-6)}</p></div>
+                     <div><p className="text-xs font-black text-slate-700 mb-1">รายการสินค้า:</p>{order.parsedData.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 font-medium text-slate-600">{order.parsedData.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-400 italic">- ไม่ระบุรายการ -</p>)}</div>
                   </div>
                 ))}
                </div>
@@ -499,29 +570,59 @@ export default function App() {
          </div>
       ) : activeTab === 'dashboard' ? (
          <div className="flex flex-col gap-6">
-            <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-purple-500">
-              <h2 className="text-2xl font-bold mb-6 flex justify-between">ภาพรวมธุรกิจ ({userRole})</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div className="bg-blue-50 p-6 rounded-xl border border-blue-100"><h3 className="text-blue-600 font-bold">ส่งรวมทั้งหมด</h3><p className="text-4xl font-black text-blue-900">{dashboardStats.totalOrders} ชิ้น</p></div>
-                <div className="bg-orange-50 p-6 rounded-xl border border-orange-100"><h3 className="text-orange-600 font-bold">ออเดอร์ COD</h3><p className="text-4xl font-black text-orange-900">{dashboardStats.codOrders} ชิ้น</p></div>
-                <div className="bg-green-50 p-6 rounded-xl border border-green-100"><h3 className="text-green-600 font-bold">คาดการณ์เงินโอน</h3><p className="text-4xl font-black text-green-900">฿{dashboardStats.totalCodAmount.toLocaleString()}</p></div>
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+              <h2 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-2">📊 ภาพรวมธุรกิจ</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 card-hover"><div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-xl mb-4">📦</div><h3 className="text-blue-600 font-bold mb-1">ส่งรวมทั้งหมด</h3><p className="text-5xl font-black text-blue-900">{dashboardStats.totalOrders} <span className="text-lg font-medium">ชิ้น</span></p></div>
+                <div className="bg-orange-50 p-6 rounded-2xl border border-orange-100 card-hover"><div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center text-xl mb-4">🚚</div><h3 className="text-orange-600 font-bold mb-1">ออเดอร์ COD</h3><p className="text-5xl font-black text-orange-900">{dashboardStats.codOrders} <span className="text-lg font-medium">ชิ้น</span></p></div>
+                <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100 card-hover"><div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center text-xl mb-4">💰</div><h3 className="text-emerald-600 font-bold mb-1">คาดการณ์เงินโอน</h3><p className="text-5xl font-black text-emerald-900">฿{dashboardStats.totalCodAmount.toLocaleString()}</p></div>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-blue-500">
-               <div className="flex flex-col md:flex-row justify-between mb-6 gap-4"><h2 className="text-2xl font-bold">🗂️ ประวัติพัสดุ</h2><div className="flex gap-2"><input type="text" className="border p-2 rounded-lg text-sm w-64" placeholder="ค้นหาชื่อ, เบอร์..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}/><button onClick={handleExportCSV} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow hover:bg-green-700">📥 โหลด Excel</button></div></div>
-               <div className="overflow-x-auto border rounded-lg"><table className="w-full text-sm text-left"><thead className="bg-gray-50 uppercase text-xs font-bold"><tr><th className="py-3 px-6">วันที่สร้าง</th><th className="py-3 px-6">เลขพัสดุ</th><th className="py-3 px-6">ผู้รับ</th><th className="py-3 px-6">ยอด COD</th><th className="py-3 px-6 text-center">จัดการ</th></tr></thead>
-               <tbody>{filteredHistory.map((order, index) => (<tr key={index} className="border-b hover:bg-gray-50"><td className="py-4 px-6">{order.createdAt?.toDate().toLocaleDateString('th-TH')}</td><td className="py-4 px-6 font-mono font-bold text-blue-600">TH-{order.id.slice(-6).toUpperCase()}</td><td className="py-4 px-6 font-bold">{order.customerName}</td><td className="py-4 px-6">{order.isCOD ? `฿${order.codAmount}` : 'โอนแล้ว'}</td><td className="py-4 px-6 flex justify-center gap-2"><button onClick={() => handleReprintHistory(order)} className="bg-gray-200 px-2 py-1 rounded text-xs font-bold">🖨️ พิมพ์ซ้ำ</button><button onClick={() => handleEditHistory(order)} className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold">✏️ แก้ไข</button></td></tr>))}</tbody></table></div>
+         </div>
+      ) : activeTab === 'team' && (userRole === 'Owner' || userRole === 'SuperAdmin') ? (
+         <div className="flex flex-col lg:flex-row gap-6">
+            <div className="w-full lg:w-1/3">
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 sticky top-6">
+                <h2 className="text-xl font-black mb-6 text-slate-800 flex items-center gap-2">➕ เพิ่มพนักงาน</h2>
+                <form onSubmit={handleAddStaff}>
+                  <div className="mb-5"><label className="block text-sm font-bold text-slate-700 mb-2">ชื่อพนักงาน</label><input type="text" required value={newStaff.name} onChange={(e)=>setNewStaff({...newStaff, name: e.target.value})} className="w-full border border-slate-200 p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none bg-slate-50 transition-all" placeholder="เช่น น้องฟ้าใส" /></div>
+                  <div className="mb-5"><label className="block text-sm font-bold text-slate-700 mb-2">เบอร์โทรศัพท์ (ใช้ล็อกอิน)</label><input type="text" maxLength="10" required value={newStaff.phone} onChange={(e)=>setNewStaff({...newStaff, phone: e.target.value})} className="w-full border border-slate-200 p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none bg-slate-50 transition-all" placeholder="089xxxxxxx" /><div className="bg-blue-50 text-blue-700 text-xs p-2 rounded-lg mt-2 font-medium">🔑 รหัสผ่านเริ่มต้นจะถูกตั้งเป็น: 123456</div></div>
+                  <div className="mb-8"><label className="block text-sm font-bold text-slate-700 mb-2">สิทธิ์การเข้าถึง</label><select value={newStaff.role} onChange={(e)=>setNewStaff({...newStaff, role: e.target.value})} className="w-full border border-slate-200 p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none bg-slate-50 font-medium appearance-none"><option value="Staff">👨‍💻 พนักงาน (จ่าหน้าอย่างเดียว)</option><option value="Admin">💼 ผู้จัดการ (ดูสถิติได้)</option></select></div>
+                  <button type="submit" className="btn-cute w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-500/30 text-lg">บันทึกข้อมูลพนักงาน</button>
+                </form>
+              </div>
+            </div>
+            <div className="w-full lg:w-2/3">
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                <h2 className="text-xl font-black mb-6 text-slate-800 flex items-center gap-2">👥 ทีมงานของคุณ</h2>
+                <div className="overflow-hidden border border-slate-200 rounded-2xl">
+                  <table className="w-full text-sm text-left"><thead className="bg-slate-50 uppercase text-xs font-black text-slate-500 tracking-wider"><tr><th className="py-4 px-6">ชื่อ</th><th className="py-4 px-6">เบอร์โทร (ล็อกอิน)</th><th className="py-4 px-6">สิทธิ์</th><th className="py-4 px-6 text-center">จัดการ</th></tr></thead>
+                    <tbody>
+                      {staffList.length === 0 ? ( <tr><td colSpan="4" className="text-center py-12 text-slate-400 font-medium">ยังไม่มีพนักงานในระบบ...</td></tr>
+                      ) : ( staffList.map((staff, idx) => (
+                          <tr key={idx} className="border-t border-slate-100 hover:bg-blue-50/50 transition-colors">
+                            <td className="py-4 px-6 font-bold text-slate-800">{staff.name}</td>
+                            <td className="py-4 px-6 font-mono font-medium text-slate-600">{staff.phone}</td>
+                            <td className="py-4 px-6"><span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${staff.role === 'Admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>{staff.role}</span></td>
+                            <td className="py-4 px-6 text-center"><button onClick={() => handleDeleteStaff(staff.id)} className="btn-cute text-rose-500 hover:text-white font-bold text-xs bg-rose-50 hover:bg-rose-500 px-3 py-1.5 rounded-lg transition-colors">ลบออก</button></td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
          </div>
       ) : activeTab === 'billing' && userRole === 'SuperAdmin' ? (
-         <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-yellow-500">
-           <h2 className="text-2xl font-bold mb-6">💳 อนุมัติการเติมเงิน (SuperAdmin)</h2>
+         <div className="bg-white p-8 rounded-3xl shadow-sm border-t-4 border-amber-400">
+           <h2 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-2">💳 อนุมัติบิล (SuperAdmin)</h2>
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
              {billingRequests.map((req, index) => (
-               <div key={index} className="border p-5 rounded-xl bg-yellow-50 relative">
-                 <p className="font-bold">{req.data.email}</p><p className="text-xs text-gray-500 mb-4">{req.data.createdAt?.toDate().toLocaleString('th-TH')}</p>
-                 <div className="bg-white p-3 rounded mb-4 flex justify-between"><div><p className="text-xs">แพ็กเกจ</p><p className="font-bold text-blue-600">{req.data.requestedQuota} ใบ</p></div><div className="text-right"><p className="text-xs">ยอดโอน</p><p className="font-black text-green-600">฿{req.data.amount}</p></div></div>
-                 <button onClick={() => handleApproveTopup(req.id, req.data.uid, req.data.requestedQuota)} className="w-full bg-green-500 text-white font-bold py-2 rounded shadow hover:bg-green-600 transition">✅ ยืนยันสลิป</button>
+               <div key={index} className="border border-amber-100 p-6 rounded-2xl bg-amber-50/30 relative card-hover">
+                 <p className="font-bold text-slate-800">{req.data.email}</p><p className="text-xs text-slate-500 mb-5 font-medium">{req.data.createdAt?.toDate().toLocaleString('th-TH')}</p>
+                 <div className="bg-white p-4 rounded-xl mb-5 flex justify-between shadow-sm border border-amber-100"><div><p className="text-xs text-slate-500 font-medium mb-1">แพ็กเกจ</p><p className="font-black text-blue-600 text-lg">{req.data.requestedQuota} <span className="text-sm">ใบ</span></p></div><div className="text-right"><p className="text-xs text-slate-500 font-medium mb-1">ยอดโอน</p><p className="font-black text-emerald-600 text-lg">฿{req.data.amount}</p></div></div>
+                 <button onClick={() => handleApproveTopup(req.id, req.data.uid, req.data.requestedQuota)} className="btn-cute w-full bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2">✅ ยืนยันสลิป</button>
                </div>
              ))}
            </div>
