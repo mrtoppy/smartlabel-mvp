@@ -106,6 +106,15 @@ export default function App() {
 
   const [isAuthView, setIsAuthView] = useState(false); 
   const [authMode, setAuthMode] = useState('login'); 
+  const [authType, setAuthType] = useState('merchant'); // 🔥 สลับโหมดร้านค้า(merchant) / ตัวแทน(partner)
+  const [affiliateData, setAffiliateData] = useState(null); // ข้อมูลตัวแทน
+  const [withdrawalHistory, setWithdrawalHistory] = useState([]); // ประวัติถอนเงิน
+
+  // 🔥 ฟังก์ชันช่วยก๊อปปี้ข้อความ
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    alert('คัดลอกลงคลิปบอร์ดแล้ว! นำไปวาง(Paste) ได้เลยครับ 📋');
+  };
   
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('maker'); 
@@ -130,6 +139,24 @@ export default function App() {
 
   // 🔥 State ใหม่สำหรับเก็บข้อมูลร้านค้าทั้งหมด (SuperAdmin)
   const [allShops, setAllShops] = useState([]);
+  // 🔥 State สำหรับ SuperAdmin ดูข้อมูล Affiliate
+  const [allAffiliates, setAllAffiliates] = useState([]);
+  const [allWithdrawals, setAllWithdrawals] = useState([]);
+
+  // ดึงข้อมูลตัวแทนและการถอนเงิน
+  const loadAffiliateDataForAdmin = async () => {
+    try {
+      const qAff = query(collection(db, "users"), where("role", "==", "Affiliate"));
+      const snapAff = await getDocs(qAff);
+      const affList = []; snapAff.forEach(d => affList.push({id: d.id, ...d.data()}));
+      setAllAffiliates(affList);
+
+      const qW = query(collection(db, "withdrawals")); 
+      const snapW = await getDocs(qW);
+      const wList = []; snapW.forEach(d => wList.push({id: d.id, ...d.data()}));
+      setAllWithdrawals(wList.sort((a,b) => b.createdAt?.toMillis() - a.createdAt?.toMillis()));
+    } catch (error) { console.error("Error loading affiliate data:", error); }
+  };
 
   // 🔥 State สำหรับคู่มือการใช้งาน (Onboarding Tutorial)
   const [showTutorial, setShowTutorial] = useState(false);
@@ -144,6 +171,15 @@ export default function App() {
           const userSnap = await getDoc(userRef);
             if (userSnap.exists()) {
             const data = userSnap.data();
+            if (data.role === 'Affiliate') {
+               setAffiliateData(data);
+               // โหลดประวัติการแจ้งถอนเงินของ Partner คนนี้
+               const qW = query(collection(db, "withdrawals"), where("affiliateId", "==", currentUser.uid));
+               getDocs(qW).then(snap => {
+                 const wList = []; snap.forEach(d => wList.push({id: d.id, ...d.data()}));
+                 setWithdrawalHistory(wList.sort((a,b) => b.createdAt?.toMillis() - a.createdAt?.toMillis()));
+               });
+            }
             setUserRole(data.role); setQuota(data.quota || 0); setUserOwnerId(data.ownerId || currentUser.uid);
             if(data.role === 'SuperAdmin') setActiveTab('shops');
             
@@ -160,16 +196,29 @@ export default function App() {
           }
         } catch (error) { console.error("Error:", error); }
       } else {
-        setUser(null); setUserRole(''); setQuota(0); setUserOwnerId(null);
+        setUser(null); setUserRole(''); setQuota(0); setUserOwnerId(null); setAffiliateData(null);
       }
       setLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
+useEffect(() => {
     const savedProfile = localStorage.getItem('smartlabel_profile');
     if (savedProfile) setStoreProfile(JSON.parse(savedProfile));
+
+    // 🔥 [Affiliate Step 1.1] ดักจับ Referral Code จาก URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const refCode = urlParams.get('ref');
+    
+    if (refCode) {
+      // แอบจดจำ Referral Code ไว้ในเครื่องลูกค้า
+      // บังคับแปลงเป็นพิมพ์ใหญ่ทั้งหมด เพื่อป้องกันปัญหาตอนคนพิมพ์ลิงก์ผิด
+      localStorage.setItem('smartlabel_ref', refCode.toUpperCase()); 
+      
+      // ทำความสะอาด URL ให้ดูเนียนตา
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, []);
 
   const loadDashboardData = async () => {
@@ -237,32 +286,48 @@ export default function App() {
     if (activeTab === 'billing' && userRole === 'SuperAdmin') loadBillingRequests();
     if (activeTab === 'team' && userRole === 'Owner') loadStaffData();
     if (activeTab === 'shops' && userRole === 'SuperAdmin') loadAllShopsData();
-  }, [activeTab, userRole, userOwnerId]); 
+    if (activeTab === 'affiliates' && userRole === 'SuperAdmin') loadAffiliateDataForAdmin();
+  }, [activeTab, userRole, userOwnerId]);
 
   const handleAuth = async (e) => {
     e.preventDefault();
-    const email = e.target.email.value;
+    const emailInput = e.target.email.value;
     const password = e.target.password.value;
-    const formattedEmail = email.includes('@') ? email : `${email}@smartlabel.com`;
+    
+    // แบ่งฟอร์แมตอีเมลตามประเภท (พาร์ทเนอร์ใช้เบอร์โทรล็อกอิน เราจะแอบต่อท้ายด้วย @partner... ให้ครับ)
+    const domain = authType === 'partner' ? '@partner.smartlabel.com' : '@smartlabel.com';
+    const formattedEmail = emailInput.includes('@') ? emailInput : `${emailInput}${domain}`;
+
     try {
-      if (authMode === 'login') { await signInWithEmailAndPassword(auth, formattedEmail, password); } 
-      else {
-        const storeName = e.target.storeName.value;
+      if (authMode === 'login') { 
+        await signInWithEmailAndPassword(auth, formattedEmail, password); 
+      } else {
         const userCredential = await createUserWithEmailAndPassword(auth, formattedEmail, password);
-        // 🔥 แก้ไขการสมัครสมาชิก ให้บันทึก storeName ลงใน Firestore ส่วนกลางด้วย SuperAdmin จะได้เห็น
-        await setDoc(doc(db, "users", userCredential.user.uid), { 
-            email: formattedEmail, 
-            role: 'Owner', 
-            quota: 20, 
-            ownerId: userCredential.user.uid, 
-            storeName: storeName, 
-            createdAt: serverTimestamp() 
-        });
-        const initialProfile = { name: storeName, phone: '', address: '' };
-        setStoreProfile(initialProfile); localStorage.setItem('smartlabel_profile', JSON.stringify(initialProfile));
-        alert("🎉 สมัครสมาชิกสำเร็จ! รับโควต้าทดลองใช้ฟรี 20 จ่าหน้าครับ");
+        
+        if (authType === 'partner') {
+           // 🔥 สร้างรหัสแนะนำ 6 ตัวอักษร สำหรับพาร์ทเนอร์
+           const refCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+           const partnerName = e.target.partnerName.value;
+           await setDoc(doc(db, "users", userCredential.user.uid), { 
+              email: formattedEmail, role: 'Affiliate', ownerId: userCredential.user.uid,
+              name: partnerName, phone: emailInput, referralCode: refCode,
+              balance: 0, totalEarned: 0, referredCount: 0, paymentInfo: '',
+              createdAt: serverTimestamp() 
+           });
+           alert(`🎉 สมัครพาร์ทเนอร์สำเร็จ! รหัสแนะนำของคุณคือ: ${refCode}`);
+        } else {
+           const storeName = e.target.storeName.value;
+           await setDoc(doc(db, "users", userCredential.user.uid), { 
+               email: formattedEmail, role: 'Owner', quota: 20, ownerId: userCredential.user.uid, 
+               storeName: storeName, referredByCode: localStorage.getItem('smartlabel_ref') || '', 
+               createdAt: serverTimestamp() 
+           });
+           const initialProfile = { name: storeName, phone: '', address: '' };
+           setStoreProfile(initialProfile); localStorage.setItem('smartlabel_profile', JSON.stringify(initialProfile));
+           alert("🎉 สมัครสมาชิกสำเร็จ! รับโควต้าทดลองใช้ฟรี 20 จ่าหน้าครับ");
+        }
       }
-    } catch (error) { alert(authMode === 'login' ? "ข้อมูลเข้าสู่ระบบไม่ถูกต้องครับ" : "เกิดข้อผิดพลาด หรืออีเมลนี้มีในระบบแล้วครับ"); }
+    } catch (error) { alert(authMode === 'login' ? "ข้อมูลเข้าสู่ระบบไม่ถูกต้องครับ" : "เกิดข้อผิดพลาด หรือไอดีนี้ถูกใช้งานแล้วครับ"); }
   };
 
   const handleLogout = () => { 
@@ -447,14 +512,42 @@ export default function App() {
     } catch (error) { alert("เกิดข้อผิดพลาดในการส่งคำขอ"); }
   };
 
-  const handleApproveTopup = async (requestId, userId, requestedQuota) => {
+const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => {
     try {
       await updateDoc(doc(db, "topups", requestId), { status: 'approved', approvedAt: serverTimestamp() });
       await updateDoc(doc(db, "users", userId), { quota: increment(requestedQuota) });
-      if (userId === user.uid) setQuota(prev => prev + requestedQuota);
+
+      // 🔥 [Affiliate] คำนวณคอมมิชชัน 10% ให้คนแนะนำ!
+      const userSnap = await getDoc(doc(db, "users", userId));
+      if (userSnap.exists() && userSnap.data().referredByCode) {
+        const refCode = userSnap.data().referredByCode;
+        const affQuery = query(collection(db, "users"), where("role", "==", "Affiliate"), where("referralCode", "==", refCode));
+        const affSnap = await getDocs(affQuery);
+        
+        if (!affSnap.empty) {
+          const affDoc = affSnap.docs[0];
+          const commission = amount * 0.10; // หัก 10% ของยอดโอน
+          await updateDoc(doc(db, "users", affDoc.id), {
+            balance: increment(commission),
+            totalEarned: increment(commission),
+            referredCount: increment(1) // แอบเพิ่มยอดสะสมร้านค้าให้ด้วย
+          });
+        }
+      }
+
+      if (userId === user?.uid) setQuota(prev => prev + requestedQuota);
       loadBillingRequests(); 
-      loadAllShopsData(); // อัปเดตข้อมูลร้านด้วยเผื่อดูโควต้า
+      loadAllShopsData(); 
     } catch (error) { alert("เกิดข้อผิดพลาดในการอนุมัติ"); }
+  };
+
+  // 🔥 ฟังก์ชันกด "โอนเงินให้นักการตลาดแล้ว"
+  const handleApproveWithdrawal = async (withdrawId) => {
+    try {
+      await updateDoc(doc(db, "withdrawals", withdrawId), { status: 'approved', approvedAt: serverTimestamp() });
+      alert("✅ ยืนยันการโอนเงินให้นักการตลาดสำเร็จ!");
+      loadAffiliateDataForAdmin();
+    } catch(err) { alert("เกิดข้อผิดพลาด"); }
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 font-bold text-blue-600 animate-pulse">กำลังโหลดระบบ...</div>;
@@ -467,26 +560,38 @@ export default function App() {
         <header className="px-6 py-20 text-center bg-gradient-to-b from-blue-50 to-white"><h1 className="text-5xl md:text-7xl font-black text-blue-900 mb-6 leading-tight hover:scale-[1.01] transition-transform">จ่าหน้าพัสดุไวขึ้น 10 เท่า <br/> <span className="text-blue-600">ด้วยสมองกลอัจฉริยะ</span></h1><p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">สกัดชื่อที่อยู่จากแชทลูกค้าอัตโนมัติ พร้อมระบบจดจำลูกค้าเก่า (CRM) และสถิติครบวงจร เพื่อแม่ค้าออนไลน์มือโปรเช่นคุณ</p><button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white text-xl px-12 py-4 rounded-full font-black shadow-xl animate-bounce mt-4">เริ่มทดลองใช้ฟรี 20 ใบ</button></header>
         <section className="py-20 px-6 max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12"><div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-12 transition-transform duration-300 inline-block">🧠</div><h3 className="text-xl font-bold mb-2">Smart CRM</h3><p className="text-gray-500">พิมพ์แค่เบอร์โทร ข้อมูลชื่อและที่อยู่ลูกค้าเก่าเด้งขึ้นมาให้ทันที</p></div><div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:-translate-y-2 transition-transform duration-300 inline-block">🖨️</div><h3 className="text-xl font-bold mb-2">Thermal Ready</h3><p className="text-gray-500">ออกแบบมาเพื่อเครื่องพิมพ์ความร้อน พิมพ์ออกมาสวยเป๊ะทุกใบ</p></div><div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-[-12deg] transition-transform duration-300 inline-block">📊</div><h3 className="text-xl font-bold mb-2">Dashboard & Export</h3><p className="text-gray-500">ดูยอดส่งรายวัน และดาวน์โหลดข้อมูลเป็น Excel ได้ในคลิกเดียว</p></div></section>
         <section className="py-24 bg-slate-50 border-t border-slate-100"><div className="max-w-4xl mx-auto px-6 text-center"><h2 className="text-4xl font-black mb-12 text-slate-800">ราคาแพ็กเกจที่คุณเลือกได้</h2><div className="grid grid-cols-1 md:grid-cols-2 gap-8"><div className="bg-white p-10 rounded-3xl shadow-lg border border-slate-200 card-hover flex flex-col justify-between"><div><p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">เริ่มต้นเบาๆ</p><p className="text-6xl font-black mb-4 text-slate-800">฿50</p><p className="text-slate-500 mb-8 font-medium">ได้รับ 100 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.5 บาท/ใบ)</span></p></div><button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-xl border-2 border-blue-600 text-blue-600 font-bold hover:bg-blue-50">เริ่มต้นใช้งาน</button></div><div className="bg-white p-10 rounded-3xl shadow-2xl border-4 border-blue-600 relative overflow-hidden card-hover transform md:-translate-y-4 flex flex-col justify-between"><div className="absolute top-0 right-0 bg-blue-600 text-white px-6 py-2 font-black text-sm rounded-bl-2xl shadow-sm tracking-widest">ยอดฮิต 🔥</div><div><p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">คุ้มค่าที่สุด</p><p className="text-6xl font-black mb-4 text-slate-800">฿200</p><p className="text-slate-500 mb-8 font-medium">ได้รับ 500 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.4 บาท/ใบ)</span></p></div><button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-500/40">เลือกแพ็กเกจนี้</button></div></div><div className="mt-12 text-slate-500 font-medium bg-white p-6 rounded-2xl shadow-sm border border-slate-200 inline-block">ต้องการส่งไม่จำกัดจำนวน? แพ็กเกจ Unlimited ฿299/เดือน <button className="text-blue-600 font-bold hover:underline ml-2">ติดต่อทีมงาน</button></div></div></section>
-        <footer className="py-12 bg-white border-t border-slate-100 text-center text-slate-400 text-sm font-medium">© 2026 ToppySmart Logistics. พัฒนาโดยพาร์ทเนอร์ & CTO Copilot</footer>
+          <footer className="py-12 bg-white border-t border-slate-100 flex flex-col items-center gap-4 text-slate-400 text-sm font-medium">
+          <p>© 2026 ToppySmart Logistics. พัฒนาโดยพาร์ทเนอร์ & CTO Copilot</p>
+          <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-indigo-500 font-bold hover:underline flex items-center gap-1">🤝 ระบบจัดการรายได้สำหรับนักการตลาด (Partner Login)</button>
+        </footer>
       </div>
     );
   }
 
   if (!user && isAuthView) {
     return (
-      <div className="min-h-screen bg-blue-900 flex flex-col items-center justify-center p-6 font-sans relative">
+      <div className={`min-h-screen flex flex-col items-center justify-center p-6 font-sans relative transition-colors duration-500 ${authType === 'partner' ? 'bg-indigo-900' : 'bg-blue-900'}`}>
         <style>{`.btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); } .btn-cute:hover { transform: scale(1.05); }`}</style>
-        <button onClick={() => setIsAuthView(false)} className="absolute top-6 left-6 text-blue-200 hover:text-white font-bold transition hover:-translate-x-1">← กลับหน้าหลัก</button>
+        <button onClick={() => setIsAuthView(false)} className="absolute top-6 left-6 text-white/50 hover:text-white font-bold transition hover:-translate-x-1">← กลับหน้าหลัก</button>
         <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md animate-[fadeIn_0.5s_ease-out]">
-          <div className="text-center mb-6"><h1 className="text-4xl font-extrabold text-blue-800 mb-2 flex justify-center items-center gap-2"><span className="animate-bounce inline-block">📦</span> SmartLabel</h1><p className="text-gray-500 font-bold">{authMode === 'login' ? 'ยินดีต้อนรับกลับมา!' : 'เริ่มต้นความสำเร็จไปกับเรา'}</p></div>
+          <div className="text-center mb-6">
+            <h1 className={`text-4xl font-extrabold mb-2 flex justify-center items-center gap-2 ${authType === 'partner' ? 'text-indigo-600' : 'text-blue-800'}`}>
+              {authType === 'partner' ? <><span className="animate-bounce inline-block">🤝</span> Partner</> : <><span className="animate-bounce inline-block">📦</span> SmartLabel</>}
+            </h1>
+            <p className="text-gray-500 font-bold">
+              {authType === 'partner' ? (authMode === 'login' ? 'ระบบจัดการรายได้นักการตลาด' : 'สมัครเป็นพาร์ทเนอร์กับเรา') : (authMode === 'login' ? 'ยินดีต้อนรับกลับมา!' : 'เริ่มต้นความสำเร็จไปกับเรา')}
+            </p>
+          </div>
           <form onSubmit={handleAuth}>
-            {authMode === 'register' && (<div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">ชื่อร้านค้าของคุณ</label><input name="storeName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none bg-gray-50 transition-all" placeholder="เช่น ToppySmart Shop" /></div>)}
-            <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">{authMode === 'login' ? 'อีเมล หรือ เบอร์โทรศัพท์' : 'อีเมลของคุณ'}</label><input name="email" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none bg-gray-50 transition-all" placeholder={authMode === 'login' ? "เบอร์โทรศัพท์ หรือ อีเมล" : "owner@mail.com"} /></div>
-            <div className="mb-6"><label className="block text-sm font-bold text-gray-700 mb-1">รหัสผ่าน</label><input name="password" type="password" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none bg-gray-50 transition-all" placeholder="••••••••" /></div>
-            <button type="submit" className="btn-cute w-full bg-blue-600 text-white font-bold py-3 rounded-xl shadow-lg hover:shadow-blue-500/50">{authMode === 'login' ? 'เข้าสู่ระบบ' : '✨ สมัครสมาชิกฟรี'}</button>
+            {authMode === 'register' && authType === 'merchant' && (<div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">ชื่อร้านค้าของคุณ</label><input name="storeName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none bg-gray-50 transition-all" placeholder="เช่น ToppySmart Shop" /></div>)}
+            {authMode === 'register' && authType === 'partner' && (<div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">ชื่อ-นามสกุล (พาร์ทเนอร์)</label><input name="partnerName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-indigo-200 outline-none bg-gray-50 transition-all" placeholder="เช่น นิชาภา สอนชา" /></div>)}
+            <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">{authType === 'partner' ? 'เบอร์โทรศัพท์ (ID)' : (authMode === 'login' ? 'อีเมล หรือ เบอร์โทรศัพท์' : 'อีเมลของคุณ')}</label><input name="email" type="text" required className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`} placeholder={authType === 'partner' ? "089xxxxxxx" : (authMode === 'login' ? "เบอร์โทรศัพท์ หรือ อีเมล" : "owner@mail.com")} /></div>
+            <div className="mb-6"><label className="block text-sm font-bold text-gray-700 mb-1">รหัสผ่าน</label><input name="password" type="password" required className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`} placeholder="••••••••" /></div>
+            <button type="submit" className={`btn-cute w-full text-white font-bold py-3 rounded-xl shadow-lg ${authType === 'partner' ? 'bg-indigo-600 hover:shadow-indigo-500/50' : 'bg-blue-600 hover:shadow-blue-500/50'}`}>{authMode === 'login' ? 'เข้าสู่ระบบ' : '✨ สมัครสมาชิกฟรี'}</button>
           </form>
           <div className="mt-6 text-center border-t pt-4">
-            {authMode === 'login' ? <p className="text-sm text-gray-600">เจ้าของร้านคนใหม่? <button onClick={() => setAuthMode('register')} className="text-blue-600 font-bold hover:underline">เปิดร้านฟรี</button></p> : <p className="text-sm text-gray-600">มีบัญชีอยู่แล้ว? <button onClick={() => setAuthMode('login')} className="text-blue-600 font-bold hover:underline">เข้าสู่ระบบ</button></p>}
+            {authMode === 'login' ? <p className="text-sm text-gray-600">{authType === 'partner' ? 'พาร์ทเนอร์ใหม่?' : 'เจ้าของร้านคนใหม่?'} <button onClick={() => setAuthMode('register')} className={`font-bold hover:underline ${authType === 'partner' ? 'text-indigo-600' : 'text-blue-600'}`}>ลงทะเบียนที่นี่</button></p> : <p className="text-sm text-gray-600">มีบัญชีอยู่แล้ว? <button onClick={() => setAuthMode('login')} className={`font-bold hover:underline ${authType === 'partner' ? 'text-indigo-600' : 'text-blue-600'}`}>เข้าสู่ระบบ</button></p>}
+            {authType === 'partner' && <button type="button" onClick={() => { setAuthType('merchant'); setAuthMode('login'); }} className="mt-4 text-xs text-slate-400 hover:text-slate-600 underline">กลับหน้าล็อกอินร้านค้าปกติ</button>}
           </div>
         </div>
       </div>
@@ -512,7 +617,127 @@ export default function App() {
       </div>
     );
   }
+  // --- Affiliate Partner Dashboard ---
+  const handleWithdrawRequest = async (e) => {
+     e.preventDefault();
+     const promptpay = e.target.promptpay.value;
+     const amount = parseFloat(e.target.amount.value);
+     if(amount < 100) return alert("ขั้นต่ำในการถอน 100 บาทครับ");
+     if(amount > affiliateData.balance) return alert("ยอดเงินในบัญชีไม่พอครับ");
 
+     try {
+       await addDoc(collection(db, "withdrawals"), {
+          affiliateId: user.uid, affiliateName: affiliateData.name, paymentInfo: promptpay,
+          amount: amount, status: 'pending', createdAt: serverTimestamp()
+       });
+       // ตัดยอด balance ใน users
+       await updateDoc(doc(db, "users", user.uid), { balance: increment(-amount) });
+       setAffiliateData(prev => ({...prev, balance: prev.balance - amount}));
+       alert("ส่งคำขอถอนเงินสำเร็จ! กรุณารอแอดมินตรวจสอบครับ");
+       
+       // โหลดประวัติใหม่
+       const qW = query(collection(db, "withdrawals"), where("affiliateId", "==", user.uid));
+       const snap = await getDocs(qW);
+       const wList = []; snap.forEach(d => wList.push({id: d.id, ...d.data()}));
+       setWithdrawalHistory(wList.sort((a,b) => b.createdAt?.toMillis() - a.createdAt?.toMillis()));
+       e.target.reset();
+     } catch (error) { alert("เกิดข้อผิดพลาดในการแจ้งถอนเงิน"); }
+  };
+
+  if (userRole === 'Affiliate' && affiliateData) {
+    const refLink = `${window.location.origin}/?ref=${affiliateData.referralCode}`;
+    const adText = `📦 จบปัญหาหลังบ้านร้านค้าออนไลน์ที่วุ่นวาย! ด้วย SmartLabel ระบบสร้างจ่าหน้าอัจฉริยะ\n✅ ดึงชื่อที่อยู่จากแชทอัตโนมัติ\n✅ จำลูกค้าเก่า (CRM) ไม่ต้องพิมพ์ใหม่\n✅ โหลดไฟล์ Excel ทำบัญชีได้ทันที\n🎁 สมัครวันนี้ รับโควต้าจ่าหน้าฟรี 20 ใบ!\n👉 สมัครเลย: ${refLink}`;
+
+    return (
+      <div className="min-h-screen bg-slate-50 p-6 font-sans">
+        <header className="flex justify-between items-center bg-white p-5 rounded-2xl shadow-sm border border-slate-100 mb-6">
+          <h1 className="text-2xl font-black text-indigo-600 flex items-center gap-2">🤝 Partner Dashboard</h1>
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-bold text-slate-600">ID: <span className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded">{affiliateData.referralCode}</span></span>
+            <button onClick={() => { setActiveTab('maker'); signOut(auth); }} className="btn-cute bg-rose-50 text-rose-600 px-5 py-2 rounded-xl font-bold text-sm hover:bg-rose-100">ออก 🚪</button>
+          </div>
+        </header>
+
+        <div className="bg-orange-500 text-white p-4 rounded-2xl shadow-md mb-6 text-center font-bold text-lg">
+          💰 พื้นที่สำหรับการตลาด (Affiliate Partner)
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+           <div className="bg-gradient-to-br from-orange-500 to-orange-600 p-8 rounded-3xl shadow-lg text-white relative overflow-hidden">
+             <div className="absolute -right-6 -bottom-6 text-8xl opacity-20">💸</div>
+             <p className="font-bold text-orange-100 mb-2">ยอดเงินที่ถอนได้ (Balance)</p>
+             <p className="text-5xl font-black">{affiliateData.balance.toLocaleString()} <span className="text-xl">THB</span></p>
+           </div>
+           <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-center">
+             <p className="font-bold text-slate-500 mb-2">รายได้สะสมตลอดกาล (Total Earned)</p>
+             <p className="text-4xl font-black text-slate-800 mb-2">{affiliateData.totalEarned.toLocaleString()} <span className="text-xl">THB</span></p>
+             <p className="text-sm font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg inline-block self-start">✨ แนะนำสำเร็จแล้ว: {affiliateData.referredCount} ร้านค้า</p>
+           </div>
+        </div>
+
+        <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 mb-6">
+           <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">🎯 อาวุธสำหรับการตลาด</h2>
+           
+           <div className="mb-6">
+              <p className="font-bold text-slate-700 mb-2">1. ลิงก์แนะนำส่วนตัวของคุณ (รหัสลับ: <span className="text-indigo-600">{affiliateData.referralCode}</span>)</p>
+              <div className="flex gap-2">
+                 <input type="text" readOnly value={refLink} className="flex-1 border border-slate-200 bg-slate-50 p-3 rounded-xl text-slate-600 font-mono text-sm outline-none" />
+                 <button onClick={() => copyToClipboard(refLink)} className="btn-cute bg-indigo-600 text-white font-bold px-6 rounded-xl shadow-md hover:bg-indigo-700">📋 คัดลอกลิงก์</button>
+              </div>
+           </div>
+
+           <div>
+              <p className="font-bold text-slate-700 mb-2">2. ไอเดียข้อความโพสต์ Facebook / Line</p>
+              <div className="bg-yellow-50/50 border border-yellow-200 p-5 rounded-2xl relative">
+                 <pre className="text-sm text-slate-700 font-sans whitespace-pre-wrap">{adText}</pre>
+                 <button onClick={() => copyToClipboard(adText)} className="btn-cute mt-4 bg-orange-500 text-white font-bold px-4 py-2 rounded-lg text-sm shadow-md hover:bg-orange-600">📋 คัดลอกข้อความ</button>
+              </div>
+           </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+           <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+             <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">🏦 แจ้งถอนเงินเข้าบัญชี</h2>
+             <form onSubmit={handleWithdrawRequest}>
+                <div className="mb-4">
+                  <label className="block text-sm font-bold text-slate-700 mb-2">เบอร์พร้อมเพย์ หรือ เลขบัญชีธนาคาร</label>
+                  <input name="promptpay" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-orange-100 outline-none transition-all bg-slate-50 focus:bg-white" placeholder="เช่น 0891234567 (กสิกรไทย)" />
+                </div>
+                <div className="mb-6">
+                  <label className="block text-sm font-bold text-slate-700 mb-2">ยอดเงินที่ต้องการถอน (ขั้นต่ำ 100 บาท)</label>
+                  <input name="amount" type="number" required min="100" max={affiliateData.balance} className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-orange-100 outline-none transition-all bg-slate-50 focus:bg-white" placeholder="0.00" />
+                </div>
+                <button type="submit" className="btn-cute w-full bg-slate-800 text-white font-black py-4 rounded-xl shadow-lg hover:bg-slate-900 transition-colors">🚀 แจ้งถอนเงิน</button>
+             </form>
+           </div>
+           
+           <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+             <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">📄 ประวัติการถอนเงิน</h2>
+             <div className="overflow-hidden border border-slate-100 rounded-2xl max-h-64 overflow-y-auto">
+               <table className="w-full text-sm text-left">
+                 <thead className="bg-slate-50 text-xs font-bold text-slate-500"><tr><th className="py-3 px-4">วันที่</th><th className="py-3 px-4 text-right">ยอดเงิน</th><th className="py-3 px-4 text-center">สถานะ</th></tr></thead>
+                 <tbody>
+                   {withdrawalHistory.length === 0 ? (
+                     <tr><td colSpan="3" className="text-center py-8 text-slate-400">ยังไม่มีประวัติการแจ้งถอนเงิน</td></tr>
+                   ) : (
+                     withdrawalHistory.map((item, idx) => (
+                       <tr key={idx} className="border-t border-slate-50">
+                         <td className="py-3 px-4 text-slate-500 text-xs">{item.createdAt ? item.createdAt.toDate().toLocaleDateString('th-TH') : '-'}</td>
+                         <td className="py-3 px-4 text-right font-black text-slate-700">฿{item.amount.toLocaleString()}</td>
+                         <td className="py-3 px-4 text-center">
+                           <span className={`px-2 py-1 rounded text-[10px] font-bold ${item.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{item.status === 'approved' ? 'โอนแล้ว' : 'รอตรวจสอบ'}</span>
+                         </td>
+                       </tr>
+                     ))
+                   )}
+                 </tbody>
+               </table>
+             </div>
+           </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="min-h-screen bg-slate-50 p-6 font-sans print:bg-white print:p-0 relative">
       <style>{`
@@ -736,6 +961,7 @@ export default function App() {
               {userRole === 'SuperAdmin' && (
                 <>
                   <button onClick={() => setActiveTab('shops')} className={`btn-cute px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${activeTab === 'shops' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>🏢 จัดการร้านค้า</button>
+                  <button onClick={() => setActiveTab('affiliates')} className={`btn-cute px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${activeTab === 'affiliates' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>🤝 ระบบตัวแทน</button>
                   <button onClick={() => setActiveTab('billing')} className={`btn-cute px-5 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 transition-all ${activeTab === 'billing' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>💳 อนุมัติบิล {billingRequests.length > 0 && <span className="bg-rose-500 text-white px-2 py-0.5 rounded-full text-xs shadow-md animate-bounce">{billingRequests.length}</span>}</button>
                 </>
               )}
@@ -978,7 +1204,60 @@ export default function App() {
               </div>
             </div>
          </div>
-      ) : activeTab === 'billing' && userRole === 'SuperAdmin' ? (
+      ) : activeTab === 'affiliates' && userRole === 'SuperAdmin' ? (
+         <div className="flex flex-col gap-6">
+           {/* ตารางนักการตลาด */}
+           <div className="bg-white p-8 rounded-3xl shadow-sm border-t-4 border-indigo-500">
+             <h2 className="text-2xl font-black mb-6 text-slate-800 flex items-center gap-2">🤝 รายชื่อนักการตลาด (Affiliate Partners)</h2>
+             <div className="overflow-hidden border border-slate-200 rounded-2xl">
+               <table className="w-full text-sm text-left">
+                 <thead className="bg-slate-50 uppercase text-xs font-black text-slate-500">
+                   <tr><th className="py-4 px-6">ชื่อ - เบอร์โทร</th><th className="py-4 px-6 text-center">รหัสแนะนำ</th><th className="py-4 px-6 text-right">รายได้สะสม</th><th className="py-4 px-6 text-right">ยอดคงเหลือ</th></tr>
+                 </thead>
+                 <tbody>
+                   {allAffiliates.length === 0 ? <tr><td colSpan="4" className="text-center py-8 text-slate-400">ยังไม่มีนักการตลาด...</td></tr> : 
+                    allAffiliates.map((aff, idx) => (
+                     <tr key={idx} className="border-t border-slate-100 hover:bg-slate-50">
+                       <td className="py-4 px-6"><p className="font-bold text-slate-800">{aff.name}</p><p className="text-xs text-slate-500">ID: {aff.phone}</p></td>
+                       <td className="py-4 px-6 text-center"><span className="bg-indigo-100 text-indigo-700 font-bold px-3 py-1 rounded">{aff.referralCode}</span></td>
+                       <td className="py-4 px-6 text-right font-black text-slate-700">฿{(aff.totalEarned || 0).toLocaleString()}</td>
+                       <td className="py-4 px-6 text-right font-black text-orange-600">฿{(aff.balance || 0).toLocaleString()}</td>
+                     </tr>
+                   ))}
+                 </tbody>
+               </table>
+             </div>
+           </div>
+
+           {/* ตารางขอถอนเงิน */}
+           <div className="bg-white p-8 rounded-3xl shadow-sm border-t-4 border-orange-500">
+             <h2 className="text-2xl font-black mb-6 text-slate-800 flex items-center gap-2">🏦 รายการขอถอนเงิน (Withdrawals)</h2>
+             <div className="overflow-hidden border border-slate-200 rounded-2xl">
+               <table className="w-full text-sm text-left">
+                 <thead className="bg-slate-50 uppercase text-xs font-black text-slate-500">
+                   <tr><th className="py-4 px-6">วันที่</th><th className="py-4 px-6">พาร์ทเนอร์</th><th className="py-4 px-6">พร้อมเพย์/บัญชี</th><th className="py-4 px-6 text-right">ยอดถอน</th><th className="py-4 px-6 text-center">จัดการ</th></tr>
+                 </thead>
+                 <tbody>
+                   {allWithdrawals.length === 0 ? <tr><td colSpan="5" className="text-center py-8 text-slate-400">ไม่มีรายการขอถอนเงิน...</td></tr> : 
+                    allWithdrawals.map((w, idx) => (
+                     <tr key={idx} className="border-t border-slate-100 hover:bg-slate-50">
+                       <td className="py-4 px-6 text-slate-500">{w.createdAt ? w.createdAt.toDate().toLocaleDateString('th-TH') : '-'}</td>
+                       <td className="py-4 px-6 font-bold text-slate-800">{w.affiliateName}</td>
+                       <td className="py-4 px-6 font-mono text-blue-600">{w.paymentInfo}</td>
+                       <td className="py-4 px-6 text-right font-black text-orange-600">฿{w.amount.toLocaleString()}</td>
+                       <td className="py-4 px-6 text-center">
+                         {w.status === 'pending' ? 
+                           <button onClick={() => handleApproveWithdrawal(w.id)} className="btn-cute bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-4 py-2 rounded-lg text-xs shadow-md">✅ โอนเงินแล้ว</button>
+                         : <span className="bg-emerald-100 text-emerald-700 font-bold px-3 py-1 rounded text-xs">โอนแล้ว</span>}
+                       </td>
+                     </tr>
+                   ))}
+                 </tbody>
+               </table>
+             </div>
+           </div>
+         </div>
+       ) : activeTab === 'billing' && userRole === 'SuperAdmin' ? (
          <div className="bg-white p-8 rounded-3xl shadow-sm border-t-4 border-emerald-400">
            <h2 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-2">💳 ตรวจสอบและอนุมัติบิล (SuperAdmin)</h2>
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -1002,7 +1281,7 @@ export default function App() {
                        <div className="text-right"><p className="text-xs text-slate-500 font-bold mb-1 uppercase tracking-widest">ยอดโอน</p><p className="font-black text-emerald-600 text-xl">฿{req.data.amount}</p></div>
                      </div>
                    </div>
-                   <button onClick={() => handleApproveTopup(req.id, req.data.uid, req.data.requestedQuota)} className="btn-cute w-full bg-emerald-500 text-white font-black py-4 rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 text-lg">✅ ยืนยันว่ายอดเงินเข้าแล้ว</button>
+                   <button onClick={() => handleApproveTopup(req.id, req.data.uid, req.data.requestedQuota, req.data.amount)} className="btn-cute w-full bg-emerald-500 text-white font-black py-4 rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 text-lg">✅ ยืนยันว่ายอดเงินเข้าแล้ว</button>
                  </div>
                </div>
              ))}
