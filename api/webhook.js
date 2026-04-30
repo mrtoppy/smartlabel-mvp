@@ -1,63 +1,78 @@
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
+
+// 🔥 1. เอา firebaseConfig จากหน้า App.jsx ของพาร์ทเนอร์มาวางตรงนี้เลยครับ
+const firebaseConfig = {
+  apiKey: "AIzaSyDqRCBpJthakk9JuDevn0EieDRLrVUqR10",
+  authDomain: "smartlabel-90891.firebaseapp.com",
+  projectId: "smartlabel-90891",
+  storageBucket: "smartlabel-90891.firebasestorage.app",
+  messagingSenderId: "692671657416",
+  appId: "1:692671657416:web:15b5107260be704531fcfd",
+  measurementId: "G-4YT0GXW1YM"
+};
+
+// เริ่มต้นเปิดระบบ Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
 export default async function handler(req, res) {
-  // 🔥 กำหนดรหัสลับของเราเอง (เดี๋ยวสเต็ป 2 เราต้องเอารหัสนี้ไปกรอกใน Facebook)
   const VERIFY_TOKEN = "smartlabel_super_secret_2026";
 
-  // ==========================================
-  // โหมดที่ 1: Facebook ยิงมาเพื่อยืนยันตัวตน (Verify Webhook)
-  // ==========================================
+  // โหมดที่ 1: Facebook ยิงมาเพื่อยืนยันตัวตน
   if (req.method === 'GET') {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
 
-    // ถ้ามีข้อมูลส่งมา และโหมดเป็นการ subscribe
-    if (mode && token) {
-      if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-        console.log('✅ WEBHOOK_VERIFIED: ยืนยันตัวตนกับ Facebook สำเร็จ!');
-        // ต้องส่ง challenge กลับไปให้ Facebook เพื่อยืนยัน
-        return res.status(200).send(challenge);
-      } else {
-        // รหัสลับไม่ตรงกัน เตะกลับไป!
-        return res.status(403).send('Forbidden');
-      }
+    if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+      return res.status(200).send(challenge);
+    } else {
+      return res.status(403).send('Forbidden');
     }
-    return res.status(400).send('Bad Request');
   }
 
-  // ==========================================
-  // โหมดที่ 2: Facebook ส่งข้อความแชทลูกค้ามาให้เรา
-  // ==========================================
+  // โหมดที่ 2: Facebook ส่งข้อความแชทมาให้
   if (req.method === 'POST') {
     const body = req.body;
 
-    // เช็คว่าข้อมูลมาจาก Page จริงๆ
     if (body.object === 'page') {
-      
-      // วนลูปอ่านข้อความ (บางทีอาจจะมาพร้อมกันหลายข้อความ)
-      body.entry.forEach(function(entry) {
-        const webhook_event = entry.messaging[0];
-        const sender_psid = webhook_event.sender.id; // รหัส Facebook ของลูกค้า
-        
-        // ถ้ามีข้อความ text ส่งมา
-        if (webhook_event.message && webhook_event.message.text) {
-          const messageText = webhook_event.message.text;
-          
-          // ตอนนี้เราแค่ Console Log ดูก่อนว่าดูดแชทมาได้จริงไหม
-          console.log(`💬 มีข้อความเข้าจากลูกค้า ID [${sender_psid}]: ${messageText}`);
-          
-          // 💡 เดี๋ยวสเต็ปต่อไป เราจะเอา messageText ตรงนี้ไปเข้า AI แยกที่อยู่
-          // และบันทึกลง Firestore อัตโนมัติครับ!
-        }
-      });
+      try {
+        // 🤖 2. สั่งให้บอท Login เข้าสู่ระบบก่อนทำงาน!
+        await signInWithEmailAndPassword(auth, "bot@smartlabel.com", "bot2026");
 
-      // ต้องตอบ 200 OK กลับไปหา Facebook เสมอ ไม่งั้น Facebook จะส่งซ้ำรัวๆ ครับ
-      return res.status(200).send('EVENT_RECEIVED');
+        // วนลูปอ่านข้อความ
+        for (const entry of body.entry) {
+          const webhook_event = entry.messaging[0];
+          const sender_psid = webhook_event.sender.id;
+          
+          if (webhook_event.message && webhook_event.message.text) {
+            const messageText = webhook_event.message.text;
+            console.log(`💬 แชทจากลูกค้า [${sender_psid}]: ${messageText}`);
+            
+            // 💾 3. บันทึกข้อความลงตาราง 'chats' ใน Firestore
+            await addDoc(collection(db, "chats"), {
+              senderId: sender_psid,
+              message: messageText,
+              timestamp: serverTimestamp(),
+              status: "new" // สถานะบอกว่าแชทใหม่ยังไม่ได้พิมพ์
+            });
+            console.log("✅ บันทึกลง Firestore สำเร็จ!");
+          }
+        }
+        return res.status(200).send('EVENT_RECEIVED');
+        
+      } catch (error) {
+        console.error("❌ เกิดข้อผิดพลาด:", error);
+        return res.status(500).send('Server Error');
+      }
     } else {
       return res.status(404).send('Not Found');
     }
   }
 
-  // ถ้าเข้ามาด้วยวิธีอื่นที่ไม่ใช่ GET หรือ POST
   res.setHeader('Allow', ['GET', 'POST']);
-  res.status(405).send(`Method ${req.method} Not Allowed`);
+  return res.status(405).send(`Method ${req.method} Not Allowed`);
 }
