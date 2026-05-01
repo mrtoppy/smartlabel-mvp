@@ -9,7 +9,8 @@ import { collection, addDoc, getDocs, query, orderBy, onSnapshot, serverTimestam
 
 import generatePayload from 'promptpay-qr';
 
-import FacebookLogin from 'react-facebook-login/dist/facebook-login-render-props';
+import FacebookLoginModule from 'react-facebook-login/dist/facebook-login-render-props';
+const FacebookLogin = FacebookLoginModule.default || FacebookLoginModule;
 
 // 🔥 สมองกล Advanced Parser ตัวเทพ
 const extractOrderData = (rawText) => {
