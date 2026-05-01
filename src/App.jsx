@@ -438,9 +438,30 @@ useEffect(() => {
       if (labelRefs.current[id]) { labelRefs.current[id].scrollIntoView({ behavior: 'smooth', block: 'center' }); }
   };
 
-  const handleSaveProfile = () => {
-    setStoreProfile(tempProfile); localStorage.setItem('smartlabel_profile', JSON.stringify(tempProfile)); setIsSettingsOpen(false);
-  };
+  const handleSaveProfile = async () => {
+      try {
+        if (!user) return;
+        
+        // ดึงข้อมูล Page IDs จากที่เราต่อ Facebook ไว้ (สมมติว่าเราเก็บไว้ใน state หรือดึงจาก response)
+        // ในเบื้องต้น เราจะบันทึกข้อมูลร้านค้าปกติพร้อมกับสถานะการเชื่อมต่อเพจครับ
+        
+        const userRef = doc(db, "users", user.uid);
+        await setDoc(userRef, {
+          storeName: storeProfile.name,
+          phone: storeProfile.phone,
+          address: storeProfile.address,
+          // 🛑 เพิ่มส่วนนี้เข้าไปครับ เพื่อเก็บรายการ Page IDs ที่แม่ค้าคนนี้ดูแล
+          // ในขั้นต่อไปเราจะเขียน logic ให้เลือกเพจที่ต้องการจริงๆ อีกครั้ง
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+
+        alert("บันทึกข้อมูลร้านค้าและเตรียมระบบดูดแชทเรียบร้อยครับ!");
+        setIsSettingsOpen(false);
+      } catch (error) {
+        console.error("Error saving profile:", error);
+        alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ");
+      }
+    };
 
   const handleSaveAndPrint = async () => {
     const readyToSaveOrders = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
