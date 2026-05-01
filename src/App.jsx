@@ -9,8 +9,9 @@ import { collection, addDoc, getDocs, query, orderBy, onSnapshot, serverTimestam
 
 import generatePayload from 'promptpay-qr';
 
-import FacebookLoginModule from 'react-facebook-login/dist/facebook-login-render-props';
-const FacebookLogin = FacebookLoginModule.default || FacebookLoginModule;
+import FacebookLoginRaw from 'react-facebook-login/dist/facebook-login-render-props';
+// ทะลวงกล่องที่ Vercel ห่อซ้อนกัน (เช็คทุกระดับชั้น)
+const FacebookLogin = FacebookLoginRaw.default?.default || FacebookLoginRaw.default || FacebookLoginRaw;
 
 // 🔥 สมองกล Advanced Parser ตัวเทพ
 const extractOrderData = (rawText) => {
