@@ -224,16 +224,38 @@ export default function App() {
               setShowTutorial(true);
             }
           } else {
-            await setDoc(userRef, { 
-              email: currentUser.email, 
-              role: 'Owner', 
-              quota: 50,             // 🎁 อัปเดตแจกฟรี 50 ใบตามหน้า Landing Page
-              usedQuota: 0,          // 📊 เริ่มต้นยอดการใช้ที่ 0
-              plan: 'Free',          // 🏷️ ประทับตราสถานะเริ่มต้นเป็น 'Free'
-              storeName: '',         // เผื่อช่องว่างไว้ให้ไปตั้งชื่อร้านทีหลัง
-              ownerId: currentUser.uid, 
-              createdAt: serverTimestamp() 
-            });
+        // 🔥 สร้างทางแยกเช็คว่า สมัครมาจากหน้าพาร์ทเนอร์ หรือ หน้าแม่ค้า
+        if (authType === 'partner') {
+          // 🤝 1. ถ้าเป็นนักการตลาด (Affiliate)
+          await setDoc(userRef, {
+            email: currentUser.email,
+            role: 'Affiliate',       // 👈 กำหนด Role ให้ถูกต้อง
+            name: '',                // (ค่อยให้ไปอัปเดตชื่อทีหลังได้)
+            phone: '',               
+            referralCode: "SL" + Math.floor(1000 + Math.random() * 9000), // สุ่มรหัสแนะนำเบื้องต้น
+            balance: 0,
+            totalEarned: 0,
+            ownerId: currentUser.uid,
+            createdAt: serverTimestamp()
+          });
+          setUserRole('Affiliate');
+          // (ถ้ามี state ควบคุม tab ให้พาไปหน้า affiliate)
+          // setActiveTab('affiliates'); 
+        } else {
+          // 📦 2. ถ้าเป็นแม่ค้า (Owner)
+          await setDoc(userRef, { 
+            email: currentUser.email, 
+            role: 'Owner',           // 👈 กำหนด Role เป็นแม่ค้า
+            quota: 50,             
+            usedQuota: 0,          
+            plan: 'Free',          
+            storeName: '',         
+            ownerId: currentUser.uid, 
+            createdAt: serverTimestamp() 
+          });
+          setUserRole('Owner');
+          setQuota(50);
+        }
             setUserRole('Owner'); setQuota(20); setUserOwnerId(currentUser.uid); 
           }
         } catch (error) { console.error("Error:", error); }
