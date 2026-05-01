@@ -62,11 +62,11 @@ export default async function handler(req, res) {
             // 💾 บันทึกข้อความลง Firestore พร้อมระบุเจ้าของเพจ
             await addDoc(collection(db, "chats"), {
               senderId: sender_psid,
-              pageId: page_id,
-              ownerId: ownerId, // 👈 จุดสำคัญ: บอกว่าแชทนี้เป็นของใคร
               message: messageText,
-              timestamp: serverTimestamp(),
-              status: "new" 
+              status: "new",
+              pageId: page_id,      // เพิ่ม: เก็บ ID เพจไว้ด้วยว่าลูกค้าทักเพจไหนมา
+              ownerId: ownerId,     // 🔥 สำคัญที่สุด: ใส่รหัสเจ้าของร้าน!
+              timestamp: serverTimestamp()
             });
             console.log(`✅ บันทึกลง Firestore สำเร็จ! (Owner: ${ownerId})`);
           }

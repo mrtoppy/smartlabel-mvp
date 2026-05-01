@@ -115,6 +115,9 @@ export default function App() {
   const [affiliateData, setAffiliateData] = useState(null); // ข้อมูลตัวแทน
   const [withdrawalHistory, setWithdrawalHistory] = useState([]); // ประวัติถอนเงิน
 
+  const [connectedPages, setConnectedPages] = useState([]); // เก็บรายชื่อเพจที่ดึงมาจาก Facebook
+  const [selectedPages, setSelectedPages] = useState([]);   // เก็บ ID เพจที่แม่ค้าติ๊กเลือกจะดูดแชท
+
   // 🔥 ฟังก์ชันช่วยก๊อปปี้ข้อความ
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
@@ -166,10 +169,15 @@ export default function App() {
     } catch (error) { console.error("Error loading affiliate data:", error); }
   };
 
-  // ดึงข้อมูลแชทจาก Facebook แบบ Real-time
+    // ดึงเฉพาะแชทที่เจ้าของเป็นเรา (user.uid) และมีสถานะเป็น 'new'
   useEffect(() => {
-    // ดึงจาก collection "chats" เรียงจากใหม่ไปเก่า
-    const qChats = query(collection(db, "chats"), orderBy("timestamp", "desc"));
+    if (!user) return; 
+
+    const q = query(
+      collection(db, 'chats'), 
+      where('ownerId', '==', user.uid), 
+      where('status', '==', 'new')
+    );
     const unsubscribeChats = onSnapshot(qChats, (snapshot) => {
       const chatData = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -205,6 +213,8 @@ export default function App() {
             }
             setUserRole(data.role); setQuota(data.quota || 0); setUserOwnerId(data.ownerId || currentUser.uid);
             if(data.role === 'SuperAdmin') setActiveTab('shops');
+
+            setStoreProfile(prev => ({ ...prev, plan: data.plan || 'Free' }));
             
             // 🔥 ถ้าเครื่องนี้ยังไม่มีโปรไฟล์ ให้ดึงชื่อร้านตอนสมัครจาก Firestore มาใส่เป็นค่าเริ่มต้น
             if (!localStorage.getItem('smartlabel_profile') && data.storeName) {
@@ -214,7 +224,16 @@ export default function App() {
               setShowTutorial(true);
             }
           } else {
-            await setDoc(userRef, { email: currentUser.email, role: 'Owner', quota: 20, ownerId: currentUser.uid, createdAt: serverTimestamp() });
+            await setDoc(userRef, { 
+              email: currentUser.email, 
+              role: 'Owner', 
+              quota: 50,             // 🎁 อัปเดตแจกฟรี 50 ใบตามหน้า Landing Page
+              usedQuota: 0,          // 📊 เริ่มต้นยอดการใช้ที่ 0
+              plan: 'Free',          // 🏷️ ประทับตราสถานะเริ่มต้นเป็น 'Free'
+              storeName: '',         // เผื่อช่องว่างไว้ให้ไปตั้งชื่อร้านทีหลัง
+              ownerId: currentUser.uid, 
+              createdAt: serverTimestamp() 
+            });
             setUserRole('Owner'); setQuota(20); setUserOwnerId(currentUser.uid); 
           }
         } catch (error) { console.error("Error:", error); }
@@ -397,11 +416,26 @@ useEffect(() => {
     } catch (error) { console.error(error); }
   };
 
-// ฟังก์ชันสำหรับกดปุ่ม "ดึงข้อมูล" จากแชท
-  const handleUseChat = (messageText) => {
-    // โยนข้อความจากแชท ไปใส่กล่องออเดอร์กล่องแรกสุดแบบอัตโนมัติ
-    if (orders.length > 0) {
-      handleTextChange(orders[0].id, messageText);
+  // 1. ฟังก์ชันสกัดที่อยู่ (อัปเกรดใหม่)
+  const handleUseChat = async (chat) => {
+    // เอาข้อความไปใส่ในกล่องออเดอร์ (อันนี้สมมติว่าท่าน CEO มีระบบจัดการกล่องฝั่งขวาอยู่นะครับ)
+    // ตรงนี้ขึ้นอยู่กับว่าโค้ดเดิมท่าน CEO เอาข้อความไปใส่อย่างไร 
+    // ตัวอย่างเช่น: handleTextChange(orders[0].id, chat.message);
+    
+    // 🔥 สั่งเปลี่ยนสถานะใน Firebase ให้แชทนี้หายไปจาก Smart Inbox
+    try {
+      await updateDoc(doc(db, "chats", chat.id), { status: "processed" });
+    } catch (error) {
+      console.error("Error updating chat status:", error);
+    }
+  };
+
+  // 2. ฟังก์ชันใหม่: ซ่อนแชทขยะ (ไม่ใช่ที่อยู่)
+  const handleDismissChat = async (chatId) => {
+    try {
+      await updateDoc(doc(db, "chats", chatId), { status: "dismissed" });
+    } catch (error) {
+      console.error("Error dismissing chat:", error);
     }
   };
 
@@ -439,29 +473,26 @@ useEffect(() => {
   };
 
   const handleSaveProfile = async () => {
-      try {
-        if (!user) return;
-        
-        // ดึงข้อมูล Page IDs จากที่เราต่อ Facebook ไว้ (สมมติว่าเราเก็บไว้ใน state หรือดึงจาก response)
-        // ในเบื้องต้น เราจะบันทึกข้อมูลร้านค้าปกติพร้อมกับสถานะการเชื่อมต่อเพจครับ
-        
-        const userRef = doc(db, "users", user.uid);
-        await setDoc(userRef, {
-          storeName: storeProfile.name,
-          phone: storeProfile.phone,
-          address: storeProfile.address,
-          // 🛑 เพิ่มส่วนนี้เข้าไปครับ เพื่อเก็บรายการ Page IDs ที่แม่ค้าคนนี้ดูแล
-          // ในขั้นต่อไปเราจะเขียน logic ให้เลือกเพจที่ต้องการจริงๆ อีกครั้ง
-          updatedAt: serverTimestamp()
-        }, { merge: true });
+    try {
+      if (!user) return;
+      
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(userRef, {
+        storeName: storeProfile.name,
+        phone: storeProfile.phone,
+        address: storeProfile.address,
+        // 🔥 จุดสำคัญ: บันทึก ID เพจที่แม่ค้าเลือกเข้า Firebase!
+        connectedPages: selectedPages, 
+        updatedAt: serverTimestamp()
+      }, { merge: true });
 
-        alert("บันทึกข้อมูลร้านค้าและเตรียมระบบดูดแชทเรียบร้อยครับ!");
-        setIsSettingsOpen(false);
-      } catch (error) {
-        console.error("Error saving profile:", error);
-        alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ");
-      }
-    };
+      alert("บันทึกข้อมูลร้านค้าและตั้งค่าเพจสำเร็จเรียบร้อยครับ!");
+      setIsSettingsOpen(false);
+    } catch (error) {
+      console.error("Error saving profile:", error);
+      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ");
+    }
+  };
 
   const handleSaveAndPrint = async () => {
     const readyToSaveOrders = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
@@ -564,12 +595,22 @@ useEffect(() => {
     } catch (error) { alert("เกิดข้อผิดพลาดในการส่งคำขอ"); }
   };
 
-const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => {
+  const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => {
     try {
+      // 1. อัปเดตสถานะบิลว่าอนุมัติแล้ว (ใช้คอลเลกชัน topups ตามโค้ดเดิมของท่าน CEO)
       await updateDoc(doc(db, "topups", requestId), { status: 'approved', approvedAt: serverTimestamp() });
-      await updateDoc(doc(db, "users", userId), { quota: increment(requestedQuota) });
+      
+      // 2. เตรียมข้อมูลอัปเดตโควต้า และเช็คว่าต้องเลื่อนขั้นเป็น Premium ไหม
+      let userUpdates = { quota: increment(requestedQuota) };
+      
+      // 🔥 ถ้าลูกค้าซื้อแพ็กเกจ 5,000 ใบ (490 บาท) ให้เลื่อนขั้นเป็น Premium ทันที!
+      if (requestedQuota === 5000) {
+         userUpdates.plan = 'Premium'; 
+      }
+      // อัปเดตข้อมูลผู้ใช้ใน Firebase
+      await updateDoc(doc(db, "users", userId), userUpdates);
 
-      // 🔥 [Affiliate] คำนวณคอมมิชชัน 10% ให้คนแนะนำ!
+      // 3. 🤝 [Affiliate] คำนวณคอมมิชชัน 10% ให้คนแนะนำ! (โค้ดเดิมของท่าน CEO ไม่หายครับ)
       const userSnap = await getDoc(doc(db, "users", userId));
       if (userSnap.exists() && userSnap.data().referredByCode) {
         const refCode = userSnap.data().referredByCode;
@@ -587,10 +628,16 @@ const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => 
         }
       }
 
+      // 4. รีเฟรชหน้าจอให้สวยงาม
       if (userId === user?.uid) setQuota(prev => prev + requestedQuota);
       loadBillingRequests(); 
       loadAllShopsData(); 
-    } catch (error) { alert("เกิดข้อผิดพลาดในการอนุมัติ"); }
+      
+      alert("✅ อนุมัติยอดเงิน เติมโควต้า และคำนวณคอมมิชชันให้พาร์ทเนอร์เรียบร้อยแล้ว!");
+    } catch (error) { 
+      console.error("Error approving topup:", error);
+      alert("เกิดข้อผิดพลาดในการอนุมัติครับ"); 
+    }
   };
 
   // 🔥 ฟังก์ชันกด "โอนเงินให้นักการตลาดแล้ว"
@@ -604,15 +651,112 @@ const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => 
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 font-bold text-blue-600 animate-pulse">กำลังโหลดระบบ...</div>;
 
-  if (!user && !isAuthView) {
+if (!user && !isAuthView) {
     return (
       <div className="min-h-screen bg-white font-sans text-gray-900 selection:bg-blue-200">
         <style>{`@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } } .animate-float { animation: float 3s ease-in-out infinite; } .btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); } .btn-cute:hover { transform: scale(1.05) translateY(-2px); box-shadow: 0 10px 20px -10px rgba(59, 130, 246, 0.5); } .card-hover { transition: transform 0.3s ease, box-shadow 0.3s ease; } .card-hover:hover { transform: translateY(-5px); box-shadow: 0 20px 30px -10px rgba(0,0,0,0.1); }`}</style>
-        <nav className="flex justify-between items-center px-6 py-4 border-b"><div className="text-2xl font-black text-blue-800 flex items-center gap-2"><span className="animate-float inline-block">📦</span> SmartLabel</div><button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-indigo-500 font-bold hover:underline flex items-center gap-1"><span>🤝</span> ร่วมเป็นพาร์ทเนอร์</button><button onClick={() => setIsAuthView(true)} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-full font-bold">เข้าสู่ระบบ</button></nav>
-        <header className="px-6 py-20 text-center bg-gradient-to-b from-blue-50 to-white"><h1 className="text-5xl md:text-7xl font-black text-blue-900 mb-6 leading-tight hover:scale-[1.01] transition-transform">จ่าหน้าพัสดุไวขึ้น 10 เท่า <br/> <span className="text-blue-600">ด้วยสมองกลอัจฉริยะ</span></h1><p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">สกัดชื่อที่อยู่จากแชทลูกค้าอัตโนมัติ พร้อมระบบจดจำลูกค้าเก่า (CRM) และสถิติครบวงจร เพื่อแม่ค้าออนไลน์มือโปรเช่นคุณ</p><button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white text-xl px-12 py-4 rounded-full font-black shadow-xl animate-bounce mt-4">เริ่มทดลองใช้ฟรี 20 ใบ</button></header>
-        <section className="py-20 px-6 max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12"><div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-12 transition-transform duration-300 inline-block">🧠</div><h3 className="text-xl font-bold mb-2">Smart CRM</h3><p className="text-gray-500">พิมพ์แค่เบอร์โทร ข้อมูลชื่อและที่อยู่ลูกค้าเก่าเด้งขึ้นมาให้ทันที</p></div><div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:-translate-y-2 transition-transform duration-300 inline-block">🖨️</div><h3 className="text-xl font-bold mb-2">Thermal Ready</h3><p className="text-gray-500">ออกแบบมาเพื่อเครื่องพิมพ์ความร้อน พิมพ์ออกมาสวยเป๊ะทุกใบ</p></div><div className="text-center group"><div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-[-12deg] transition-transform duration-300 inline-block">📊</div><h3 className="text-xl font-bold mb-2">Dashboard & Export</h3><p className="text-gray-500">ดูยอดส่งรายวัน และดาวน์โหลดข้อมูลเป็น Excel ได้ในคลิกเดียว</p></div></section>
-        <section className="py-24 bg-slate-50 border-t border-slate-100"><div className="max-w-4xl mx-auto px-6 text-center"><h2 className="text-4xl font-black mb-12 text-slate-800">ราคาแพ็กเกจที่คุณเลือกได้</h2><div className="grid grid-cols-1 md:grid-cols-2 gap-8"><div className="bg-white p-10 rounded-3xl shadow-lg border border-slate-200 card-hover flex flex-col justify-between"><div><p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">เริ่มต้นเบาๆ</p><p className="text-6xl font-black mb-4 text-slate-800">฿50</p><p className="text-slate-500 mb-8 font-medium">ได้รับ 100 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.5 บาท/ใบ)</span></p></div><button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-xl border-2 border-blue-600 text-blue-600 font-bold hover:bg-blue-50">เริ่มต้นใช้งาน</button></div><div className="bg-white p-10 rounded-3xl shadow-2xl border-4 border-blue-600 relative overflow-hidden card-hover transform md:-translate-y-4 flex flex-col justify-between"><div className="absolute top-0 right-0 bg-blue-600 text-white px-6 py-2 font-black text-sm rounded-bl-2xl shadow-sm tracking-widest">ยอดฮิต 🔥</div><div><p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">คุ้มค่าที่สุด</p><p className="text-6xl font-black mb-4 text-slate-800">฿200</p><p className="text-slate-500 mb-8 font-medium">ได้รับ 500 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.4 บาท/ใบ)</span></p></div><button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-500/40">เลือกแพ็กเกจนี้</button></div></div><div className="mt-12 text-slate-500 font-medium bg-white p-6 rounded-2xl shadow-sm border border-slate-200 inline-block">ต้องการส่งไม่จำกัดจำนวน? แพ็กเกจ Unlimited ฿299/เดือน <button className="text-blue-600 font-bold hover:underline ml-2">ติดต่อทีมงาน</button></div></div></section>
-          <footer className="py-12 bg-white border-t border-slate-100 flex flex-col items-center gap-4 text-slate-400 text-sm font-medium">
+        
+        <nav className="flex justify-between items-center px-6 py-4 border-b">
+          <div className="text-2xl font-black text-blue-800 flex items-center gap-2"><span className="animate-float inline-block">📦</span> SmartLabel</div>
+          <div className="flex gap-4">
+            <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-indigo-500 font-bold hover:underline flex items-center gap-1 hidden md:flex"><span>🤝</span> ร่วมเป็นพาร์ทเนอร์</button>
+            <button onClick={() => setIsAuthView(true)} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-full font-bold">เข้าสู่ระบบ</button>
+          </div>
+        </nav>
+        
+        <header className="px-6 py-20 text-center bg-gradient-to-b from-blue-50 to-white">
+          <h1 className="text-5xl md:text-7xl font-black text-blue-900 mb-6 leading-tight hover:scale-[1.01] transition-transform">จ่าหน้าพัสดุไวขึ้น 10 เท่า <br/> <span className="text-blue-600">ด้วยสมองกลอัจฉริยะ</span></h1>
+          <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">สกัดชื่อที่อยู่จากแชทลูกค้าอัตโนมัติ พร้อมระบบจดจำลูกค้าเก่า (CRM) และสถิติครบวงจร เพื่อแม่ค้าออนไลน์มือโปรเช่นคุณ</p>
+          {/* เปลี่ยนเป็นแจกฟรี 50 ใบ ใจป้ำๆ ครับ */}
+          <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white text-xl px-12 py-4 rounded-full font-black shadow-xl animate-bounce mt-4">เริ่มทดลองใช้ฟรี 50 ใบ</button>
+        </header>
+        
+        <section className="py-20 px-6 max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12">
+          <div className="text-center group">
+            <div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-12 transition-transform duration-300 inline-block">🧠</div>
+            <h3 className="text-xl font-bold mb-2">Smart CRM</h3>
+            <p className="text-gray-500">พิมพ์แค่เบอร์โทร ข้อมูลชื่อและที่อยู่ลูกค้าเก่าเด้งขึ้นมาให้ทันที</p>
+          </div>
+          <div className="text-center group">
+            <div className="text-6xl mb-4 group-hover:scale-125 group-hover:-translate-y-2 transition-transform duration-300 inline-block">🖨️</div>
+            <h3 className="text-xl font-bold mb-2">Thermal Ready</h3>
+            <p className="text-gray-500">ออกแบบมาเพื่อเครื่องพิมพ์ความร้อน พิมพ์ออกมาสวยเป๊ะทุกใบ</p>
+          </div>
+          <div className="text-center group">
+            <div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-[-12deg] transition-transform duration-300 inline-block">📊</div>
+            <h3 className="text-xl font-bold mb-2">Dashboard & Export</h3>
+            <p className="text-gray-500">ดูยอดส่งรายวัน และดาวน์โหลดข้อมูลเป็น Excel ได้ในคลิกเดียว</p>
+          </div>
+        </section>
+        
+        <section className="py-24 bg-slate-50 border-t border-slate-100">
+          <div className="max-w-6xl mx-auto px-6 text-center">
+            <h2 className="text-4xl font-black mb-12 text-slate-800">ราคาแพ็กเกจที่คุณเลือกได้</h2>
+            {/* ปรับ Grid เป็น 3 คอลัมน์ สำหรับ 3 แพ็กเกจ */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
+              
+              {/* แพ็กเกจ 50 บาท */}
+              <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-200 card-hover flex flex-col justify-between">
+                <div>
+                  <p className="text-slate-500 font-bold mb-4 tracking-widest uppercase text-sm">เริ่มต้นเบาๆ</p>
+                  <p className="text-5xl font-black mb-4 text-slate-800">฿50</p>
+                  <p className="text-slate-500 mb-6 font-medium">ได้รับ 100 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.5 บาท/ใบ)</span></p>
+                  <ul className="text-sm text-slate-600 mb-8 space-y-3">
+                    <li className="flex items-center gap-2">✅ ใช้งานระบบจ่าหน้าปกติ</li>
+                    <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
+                    <li className="flex items-center gap-2 opacity-40">❌ ระบบดูดแชท Facebook</li>
+                    <li className="flex items-center gap-2 opacity-40">❌ AI สกัดที่อยู่อัตโนมัติ</li>
+                  </ul>
+                </div>
+                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-3 rounded-xl border-2 border-slate-300 text-slate-600 font-bold hover:bg-slate-50">เริ่มต้นใช้งาน</button>
+              </div>
+
+              {/* แพ็กเกจ 200 บาท */}
+              <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-200 card-hover flex flex-col justify-between">
+                <div>
+                  <p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">ขายดี</p>
+                  <p className="text-5xl font-black mb-4 text-slate-800">฿200</p>
+                  <p className="text-slate-500 mb-6 font-medium">ได้รับ 500 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.4 บาท/ใบ)</span></p>
+                  <ul className="text-sm text-slate-600 mb-8 space-y-3">
+                    <li className="flex items-center gap-2">✅ ใช้งานระบบจ่าหน้าปกติ</li>
+                    <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
+                    <li className="flex items-center gap-2 opacity-40">❌ ระบบดูดแชท Facebook</li>
+                    <li className="flex items-center gap-2 opacity-40">❌ AI สกัดที่อยู่อัตโนมัติ</li>
+                  </ul>
+                </div>
+                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-3 rounded-xl border-2 border-blue-600 text-blue-600 font-bold hover:bg-blue-50">เลือกแพ็กเกจนี้</button>
+              </div>
+
+              {/* 🔥 แพ็กเกจพรีเมียม 490 บาท/เดือน (พระเอกของเรา) */}
+              <div className="bg-gradient-to-b from-indigo-50 to-white p-8 rounded-3xl shadow-2xl border-4 border-indigo-600 relative overflow-hidden card-hover transform md:-translate-y-4 flex flex-col justify-between">
+                <div className="absolute top-0 right-0 bg-indigo-600 text-white px-6 py-2 font-black text-sm rounded-bl-2xl shadow-sm tracking-widest">พรีเมียม 💎</div>
+                <div>
+                  <p className="text-indigo-600 font-bold mb-4 tracking-widest uppercase text-sm">คุ้มค่าที่สุด</p>
+                  <div className="flex items-end gap-1 mb-4">
+                    <p className="text-5xl font-black text-slate-800">฿490</p>
+                    <p className="text-lg text-slate-500 font-bold mb-1">/เดือน</p>
+                  </div>
+                  <p className="text-slate-500 mb-6 font-medium">ได้รับ 5,000 จ่าหน้า <br/> <span className="text-sm">(คุ้มสุดๆ เพียง 0.09 บาท/ใบ)</span></p>
+                  <ul className="text-sm text-indigo-900 mb-8 space-y-3 font-bold">
+                    <li className="flex items-center gap-2">✨ ระบบดูดแชทเพจ Facebook</li>
+                    <li className="flex items-center gap-2">⚡ AI สกัดที่อยู่อัตโนมัติ</li>
+                    <li className="flex items-center gap-2">✅ ใช้งานระบบจ่าหน้าปกติ</li>
+                    <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
+                  </ul>
+                </div>
+                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-xl bg-indigo-600 text-white font-black shadow-lg shadow-indigo-500/40">อัปเกรดเป็น Premium</button>
+              </div>
+
+            </div>
+            
+            {/* ป้ายประกาศสำหรับขาใหญ่ */}
+            <div className="mt-16 text-slate-500 font-medium bg-white p-6 rounded-2xl shadow-sm border border-slate-200 inline-block">
+              🚀 ส่งมากกว่า 5,000 ชิ้น/เดือน? เตรียมพบกับแพ็กเกจ <span className="font-black text-slate-800">Ultimate</span> เร็วๆ นี้! <button className="text-indigo-600 font-bold hover:underline ml-2">ติดต่อทีมงานเพื่อจองคิว</button>
+            </div>
+          </div>
+        </section>
+        
+        <footer className="py-12 bg-white border-t border-slate-100 flex flex-col items-center gap-4 text-slate-400 text-sm font-medium">
           <p>© 2026 ToppySmart Logistics. พัฒนาโดยพาร์ทเนอร์ & CTO Copilot</p>
           <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-indigo-500 font-bold hover:underline flex items-center gap-1">🤝 ระบบจัดการรายได้สำหรับนักการตลาด (Partner Login)</button>
         </footer>
@@ -904,31 +1048,43 @@ const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => 
             </div>
 
             <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span> เลือกแพ็กเกจสุดคุ้ม</h3>
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <div onClick={() => setSelectedPackage(100)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 100 ? 'border-blue-500 bg-blue-50 scale-[1.03] shadow-md shadow-blue-500/20' : 'border-gray-200 hover:border-blue-300 hover:bg-slate-50'}`}>
-                {selectedPackage === 100 && <div className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">เลือกอยู่</div>}
-                <p className={`font-black text-2xl ${selectedPackage === 100 ? 'text-blue-700' : 'text-slate-700'}`}>100 ใบ</p>
-                <p className="text-sm text-slate-500 mt-1 font-medium">50 บาท</p>
+            {/* 🔥 ปรับเป็น 3 คอลัมน์ เพื่อรองรับแพ็กเกจ Premium */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              {/* แพ็กเกจ 100 ใบ */}
+              <div onClick={() => setSelectedPackage(100)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 100 ? 'border-slate-500 bg-slate-50 scale-[1.03] shadow-md shadow-slate-500/20' : 'border-gray-200 hover:border-slate-300 hover:bg-slate-50'}`}>
+                {selectedPackage === 100 && <div className="absolute top-0 right-0 bg-slate-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">เลือกอยู่</div>}
+                <p className={`font-black text-xl ${selectedPackage === 100 ? 'text-slate-700' : 'text-slate-700'}`}>100 ใบ</p>
+                <p className="text-xs text-slate-500 mt-1 font-medium">50 บาท</p>
               </div>
+              
+              {/* แพ็กเกจ 500 ใบ */}
               <div onClick={() => setSelectedPackage(500)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 500 ? 'border-blue-500 bg-blue-50 scale-[1.03] shadow-md shadow-blue-500/20' : 'border-gray-200 hover:border-blue-300 hover:bg-slate-50'}`}>
                 {selectedPackage === 500 && <div className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">ยอดฮิต 🔥</div>}
-                <p className={`font-black text-2xl ${selectedPackage === 500 ? 'text-blue-700' : 'text-slate-700'}`}>500 ใบ</p>
-                <p className="text-sm text-slate-500 mt-1 font-medium">200 บาท</p>
+                <p className={`font-black text-xl ${selectedPackage === 500 ? 'text-blue-700' : 'text-slate-700'}`}>500 ใบ</p>
+                <p className="text-xs text-slate-500 mt-1 font-medium">200 บาท</p>
+              </div>
+
+              {/* 💎 แพ็กเกจ Premium 5,000 ใบ */}
+              <div onClick={() => setSelectedPackage(5000)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 5000 ? 'border-indigo-500 bg-indigo-50 scale-[1.03] shadow-md shadow-indigo-500/20' : 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'}`}>
+                {selectedPackage === 5000 && <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">พรีเมียม 💎</div>}
+                <p className={`font-black text-xl ${selectedPackage === 5000 ? 'text-indigo-700' : 'text-slate-700'}`}>5,000 ใบ</p>
+                <p className="text-xs text-indigo-600 mt-1 font-black">+ ดูดแชท (490฿)</p>
               </div>
             </div>
 
             <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">2</span> สแกน QR ชำระเงิน</h3>
               <div className="flex flex-col items-center bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6">
               <div className="bg-white p-3 rounded-xl shadow-sm mb-3 border border-slate-100">
-                {/* 🎯 สร้างรหัส PromptPay อัตโนมัติ (ใส่เบอร์พาร์ทเนอร์ และยอดเงิน) */}
+                {/* 🎯 สลับยอดเงิน QR Code ให้ตรงกับ 3 แพ็กเกจ */}
                 <QRCodeSVG 
-                  value={generatePayload("0874484448", { amount: selectedPackage === 100 ? 50 : 200 })} 
+                  value={generatePayload("0874484448", { amount: selectedPackage === 100 ? 50 : selectedPackage === 500 ? 200 : 490 })} 
                   size={130} 
                 />
               </div>
               <p className="text-sm font-black text-slate-800">พร้อมเพย์: ท็อปปี้สมาร์ท โลจิสติกส์</p>
               <p className="text-lg font-black text-emerald-600 mt-1 bg-emerald-50 px-4 py-1 rounded-full border border-emerald-100">
-                ยอดชำระ: ฿{selectedPackage === 100 ? '50.00' : '200.00'}
+                {/* 🎯 สลับข้อความยอดชำระให้ตรงกัน */}
+                ยอดชำระ: ฿{selectedPackage === 100 ? '50.00' : selectedPackage === 500 ? '200.00' : '490.00'}
               </p>
             </div>
 
@@ -987,6 +1143,8 @@ const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => 
                 เพื่อดูดแชทลูกค้าเข้าสู่ Smart Inbox อัตโนมัติ (เฉพาะแพ็กเกจ Premium)
               </p>
               
+              {/* 🔒 เช็คสิทธิ์ Premium ก่อนโชว์ปุ่ม Facebook */}
+              {storeProfile?.plan === 'Premium' ? (
               <FacebookLogin
                 appId="1535211344898500"
                 autoLoad={false}
@@ -995,7 +1153,9 @@ const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => 
                 callback={(response) => {
                   console.log("ได้ข้อมูลจาก Facebook แล้ว!", response);
                   if (response.accounts && response.accounts.data.length > 0) {
-                     alert(`เชื่อมต่อเพจสำเร็จ! พบ ${response.accounts.data.length} เพจ เดี๋ยวเราค่อยทำระบบให้แม่ค้าเลือกเพจอีกทีครับ`);
+                     // เซ็ตข้อมูลเพจลง State เพื่อเอาไปโชว์ให้แม่ค้าเลือก
+                     setConnectedPages(response.accounts.data);
+                     alert(`พบ ${response.accounts.data.length} เพจ! กรุณาติ๊กเลือกเพจด้านล่างเพื่อเชื่อมต่อครับ`);
                   } else {
                      alert("คุณยังไม่ได้อนุญาตสิทธิ์เข้าถึงเพจ หรือคุณไม่มีเพจครับ");
                   }
@@ -1010,6 +1170,42 @@ const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => 
                   </button>
                 )}
               />
+              ) : (
+                // 🛑 ถ้าไม่ใช่ Premium ให้โชว์ปุ่มล็อคสีเทาๆ
+                <button 
+                  type="button"
+                  onClick={() => alert('✨ ฟีเจอร์เชื่อมต่อเพจ Facebook สำหรับแพ็กเกจ Premium เท่านั้น!\n\nกรุณาติดต่อแอดมินเพื่ออัปเกรดระบบดูดแชทอัตโนมัติครับ 🚀')} 
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-500 font-bold py-3 px-4 rounded-lg flex justify-center items-center gap-2 transition-colors border border-slate-300"
+                >
+                  <span className="text-lg drop-shadow-sm">🔒</span> เชื่อมต่อเพจ Facebook (ฟีเจอร์ Premium)
+                </button>
+              )}
+              {/* โซนแสดงรายชื่อเพจให้เลือก (จะโชว์ก็ต่อเมื่อดึงข้อมูลเฟสบุ๊คสำเร็จ) */}
+              {connectedPages.length > 0 && (
+                <div className="mt-4 p-4 bg-white border border-gray-200 rounded-lg">
+                  <h4 className="text-sm font-bold text-gray-800 mb-2">เลือกเพจที่ต้องการดูดแชท:</h4>
+                  <div className="flex flex-col gap-2 max-h-40 overflow-y-auto">
+                    {connectedPages.map(page => (
+                      <label key={page.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-2 rounded">
+                        <input 
+                          type="checkbox" 
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300"
+                          value={page.id}
+                          checked={selectedPages.includes(page.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedPages([...selectedPages, page.id]);
+                            } else {
+                              setSelectedPages(selectedPages.filter(id => id !== page.id));
+                            }
+                          }}
+                        />
+                        <span className="text-sm text-gray-700">{page.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-3">
               <button onClick={() => setIsSettingsOpen(false)} className="btn-cute px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold">ยกเลิก</button>
@@ -1109,299 +1305,115 @@ const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => 
              </table>
            </div>
          </div>
-) : activeTab === 'maker' ? (
-         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 print:block print:gap-0 print:m-0">
-           
-           {/* ======================================================== */}
-           {/* 💎 โซนซ้าย: Inbox อัจฉริยะ (ดึงแชทอัตโนมัติ) */}
-           {/* ======================================================== */}
-           <div className="lg:col-span-4 flex flex-col h-[75vh] print:hidden">
-             <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-t-2xl p-4 text-white flex justify-between items-center shadow-lg">
-               <h3 className="font-bold text-lg flex items-center gap-2"><span className="text-2xl">🤖</span> Smart Inbox</h3>
-               <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-sm shadow-sm border border-white/30">✨ Premium</span>
-             </div>
-             <div className="bg-white border-x border-b border-gray-200 rounded-b-2xl shadow-lg flex-1 p-4 overflow-y-auto">
-               {incomingChats.length === 0 ? (
-                 <div className="text-center text-gray-400 mt-10 flex flex-col items-center">
-                   <span className="text-4xl mb-3">📭</span>
-                   <p>ยังไม่มีข้อความเข้าใหม่...</p>
-                 </div>
-               ) : (
-                 <div className="space-y-4">
-                   {incomingChats.map((chat) => (
-                     <div key={chat.id} className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 hover:shadow-md transition-all duration-300 relative group">
-                       <div className="flex justify-between items-start mb-2">
-                         <span className="text-xs text-indigo-400 font-semibold bg-white px-2 py-1 rounded-md shadow-sm border border-indigo-50">ID ลูกค้า: {chat.senderId}</span>
-                         <span className="text-xs text-gray-400">{chat.timestamp ? new Date(chat.timestamp.toDate()).toLocaleTimeString('th-TH') : 'Just now'}</span>
-                       </div>
-                       <p className="text-gray-700 text-sm mb-4 line-clamp-3 leading-relaxed">"{chat.message}"</p>
-                       <button onClick={() => handleUseChat(chat.message)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all flex justify-center items-center gap-2 text-sm">
-                         <span>⚡</span> สกัดที่อยู่ด้วย AI
-                       </button>
-                     </div>
-                   ))}
-                 </div>
-               )}
-             </div>
-           </div>
-
-           {/* ======================================================== */}
-           {/* โซนขวา: ฟอร์มก๊อปวางเดิม และ พรีวิวพิมพ์ */}
-           {/* ======================================================== */}
-           <div className="lg:col-span-8 flex flex-col lg:flex-row gap-6">
-              
-              {/* กล่องซ้ายในโซนขวา: กรอกข้อมูล */}
-              <div className="flex-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 max-h-[75vh] overflow-y-auto print:hidden">
-                <h2 className="text-xl font-black mb-6 text-gray-800 flex items-center gap-2"><span className="text-blue-500">1.</span> วางข้อความแชต</h2>
-                {orders.map((order, index) => {
-                  let boxColorClass = 'border-gray-200 focus:ring-blue-300';
-                  if (order.parsedData) {
-                    const hasWarnings = order.parsedData.warnings.length > 0;
-                    boxColorClass = order.parsedData.isCOD ? (hasWarnings ? 'border-orange-400 bg-orange-50/50' : 'border-orange-500 bg-orange-50 ring-2 ring-orange-200') : (hasWarnings ? 'border-rose-400 bg-rose-50/50' : 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200');
-                  }
-                  return (
-                    <div key={order.id} className="mb-6 p-5 rounded-2xl border border-gray-100 bg-slate-50/50 hover:bg-white transition-colors group">
-                      <div className="flex justify-between items-center mb-3">
-                        <label className="font-bold text-gray-500 bg-white px-3 py-1 rounded-lg text-sm shadow-sm border border-gray-100">ออเดอร์ที่ {index + 1} {order.isSaved && <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">💾 บันทึกแล้ว</span>}</label>
-                        {(order.rawText !== '' || orders.length > 1) && <button onClick={() => handleDeleteOrder(order.id)} className="text-rose-400 hover:text-rose-600 text-sm font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️ ลบ</button>}
-                      </div>
-                      {order.crmSuggestion && <div className="mb-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl flex justify-between items-center shadow-sm animate-pulse"><div><p className="text-xs text-indigo-600 font-black mb-1">✨ พบประวัติลูกค้า!</p><p className="text-sm font-bold text-slate-800">{order.crmSuggestion.customerName}</p></div><button onClick={() => applyCrmData(order.id, order.crmSuggestion)} className="btn-cute bg-indigo-600 text-white text-xs font-bold py-2 px-4 rounded-lg shadow-md shadow-indigo-500/30">ใช้ข้อมูลนี้</button></div>}
-                      <textarea className={`w-full h-32 p-4 rounded-xl focus:outline-none focus:ring-4 resize-none transition-all shadow-inner ${boxColorClass}`} placeholder="วางที่อยู่ หรือ พิมพ์แค่เบอร์โทรศัพท์..." value={order.rawText} onChange={(e) => handleTextChange(order.id, e.target.value)} onFocus={() => handleFocus(order.id)} />
-                      {order.parsedData && order.parsedData.warnings.length > 0 && <div className="mt-3 text-sm font-bold text-rose-500 flex flex-col gap-1 bg-rose-50 p-3 rounded-lg border border-rose-100">{order.parsedData.warnings.map((w, i) => <span key={i}>⚠️ {w.replace('⚠️ ', '')}</span>)}</div>}
-                    </div>
-                  );
-                })}
-              </div>
-              
-              {/* กล่องขวาในโซนขวา: พรีวิวพิมพ์ */}
-              <div className="flex-1 bg-slate-100/50 rounded-2xl shadow-inner border-2 border-dashed border-slate-300 max-h-[75vh] overflow-y-auto print:max-h-none print:overflow-visible print:bg-white print:border-none print:shadow-none print:m-0 print:p-0 relative print:static">
-                 <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 p-5 flex justify-between items-center z-10 print:hidden"><h2 className="text-xl font-black text-gray-800 flex items-center gap-2"><span className="text-blue-500">2.</span> ตรวจสอบและสั่งพิมพ์</h2><button onClick={handleSaveAndPrint} className="btn-cute bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2">💾 บันทึก & สั่งพิมพ์</button></div>
-                 <div className="p-8 print:p-0 print:m-0">
-                  {orders.filter(o => o.parsedData).map((order) => (
-                    <div key={order.id} ref={(el) => (labelRefs.current[order.id] = el)} className="w-full max-w-sm mx-auto mb-10 bg-white border-2 border-black p-4 thermal-label shadow-xl card-hover print:max-w-none print:mx-0 print:mb-0 print:shadow-none print:transform-none">
-                       <div className="flex justify-between border-b-2 border-slate-200 pb-2 mb-3 font-bold text-sm print:border-black"><span>SmartLabel ✅</span><span className="text-gray-500">Admin: {user?.email?.split('@')[0]}</span></div>
-                       <div className="mb-3"><p className="text-xs text-gray-500 font-medium">ผู้ส่ง:</p><p className="font-bold text-sm">{storeProfile.name}</p></div>
-                       {order.parsedData.isCOD && <div className="bg-black text-white text-center py-2 mb-3 text-2xl font-black tracking-wider rounded-sm print:border-4 print:border-black">COD: {order.parsedData.codAmount}</div>}
-                       <div className="bg-slate-50 p-3 mb-3 rounded-sm border border-slate-200 print:bg-white print:border-black print:border-2"><p className="text-xs text-blue-600 font-black mb-1 print:text-black">ผู้รับ:</p><p className="text-xl font-black text-slate-800">{order.parsedData.customerName || 'ไม่มีชื่อ'}</p><p className="text-lg font-bold text-slate-700 mt-1">☎ {order.parsedData.phone || '-'}</p><p className="text-sm leading-relaxed mt-2 text-slate-600">{order.parsedData.address || 'ไม่มีที่อยู่'}</p></div>
-                       <div className="text-center text-5xl font-black mb-4 tracking-widest text-slate-900">{order.parsedData.zipcode || '00000'}</div>
-                       <div className="flex flex-col items-center border-t-2 border-b-2 border-slate-200 py-3 mb-3 print:border-black"><QRCodeSVG value={JSON.stringify({ id: order.id, cod: order.parsedData.isCOD ? order.parsedData.codAmount : 0, admin: user?.email })} size={60} /><p className="text-[10px] mt-2 font-mono uppercase font-bold text-slate-500 tracking-widest">REF: #{String(order.id).slice(-6)}</p></div>
-                       <div><p className="text-xs font-black text-slate-700 mb-1">รายการสินค้า:</p>{order.parsedData.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 font-medium text-slate-600">{order.parsedData.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-400 italic">- ไม่ระบุรายการ -</p>)}</div>
-                    </div>
-                  ))}
-                 </div>
-              </div>
-           </div>
-         </div>
-      ) : activeTab === 'dashboard' ? (
-         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 print:block print:gap-0 print:m-0">
-
-           {/* ======================================================== */}
-           {/* 💎 โซนซ้าย: Inbox อัจฉริยะ (ดึงแชทอัตโนมัติ) */}
-           {/* ======================================================== */}
-           <div className="xl:col-span-4 flex flex-col h-[75vh] print:hidden">
-             <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-t-2xl p-4 text-white flex justify-between items-center shadow-lg">
-               <h3 className="font-bold text-lg flex items-center gap-2"><span className="text-2xl">🤖</span> Smart Inbox</h3>
-               <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-sm shadow-sm border border-white/30">✨ Premium</span>
-             </div>
-             <div className="bg-white border-x border-b border-gray-200 rounded-b-2xl shadow-lg flex-1 p-4 overflow-y-auto">
-               {incomingChats.length === 0 ? (
-                 <div className="text-center text-gray-400 mt-10 flex flex-col items-center">
-                   <span className="text-4xl mb-3">📭</span>
-                   <p>ยังไม่มีข้อความเข้าใหม่...</p>
-                 </div>
-               ) : (
-                 <div className="space-y-4">
-                   {incomingChats.map((chat) => (
-                     <div key={chat.id} className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 hover:shadow-md transition-all duration-300 relative group">
-                       <div className="flex justify-between items-start mb-2">
-                         <span className="text-xs text-indigo-400 font-semibold bg-white px-2 py-1 rounded-md shadow-sm border border-indigo-50">ID ลูกค้า: {chat.senderId}</span>
-                         <span className="text-xs text-gray-400">{chat.timestamp ? new Date(chat.timestamp.toDate()).toLocaleTimeString('th-TH') : 'Just now'}</span>
-                       </div>
-                       <p className="text-gray-700 text-sm mb-4 line-clamp-3 leading-relaxed">"{chat.message}"</p>
-                       <button onClick={() => handleUseChat(chat.message)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all flex justify-center items-center gap-2 text-sm">
-                         <span>⚡</span> สกัดที่อยู่ด้วย AI
-                       </button>
-                     </div>
-                   ))}
-                 </div>
-               )}
-             </div>
-           </div>
-
-           {/* ======================================================== */}
-           {/* โซนขวา: ฟอร์มก๊อปวางเดิม และ พรีวิวพิมพ์ */}
-           {/* ======================================================== */}
-           <div className="xl:col-span-8 flex flex-col lg:flex-row gap-6">
-              
-              {/* กล่องซ้ายในโซนขวา: กรอกข้อมูล */}
-              <div className="flex-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 max-h-[75vh] overflow-y-auto print:hidden">
-                <h2 className="text-xl font-black mb-6 text-gray-800 flex items-center gap-2"><span className="text-blue-500">1.</span> วางข้อความแชต</h2>
-                {orders.map((order, index) => {
-                  let boxColorClass = 'border-gray-200 focus:ring-blue-300';
-                  if (order.parsedData) {
-                    const hasWarnings = order.parsedData.warnings.length > 0;
-                    boxColorClass = order.parsedData.isCOD ? (hasWarnings ? 'border-orange-400 bg-orange-50/50' : 'border-orange-500 bg-orange-50 ring-2 ring-orange-200') : (hasWarnings ? 'border-rose-400 bg-rose-50/50' : 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200');
-                  }
-                  return (
-                    <div key={order.id} className="mb-6 p-5 rounded-2xl border border-gray-100 bg-slate-50/50 hover:bg-white transition-colors group">
-                      <div className="flex justify-between items-center mb-3">
-                        <label className="font-bold text-gray-500 bg-white px-3 py-1 rounded-lg text-sm shadow-sm border border-gray-100">ออเดอร์ที่ {index + 1} {order.isSaved && <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">💾 บันทึกแล้ว</span>}</label>
-                        {(order.rawText !== '' || orders.length > 1) && <button onClick={() => handleDeleteOrder(order.id)} className="text-rose-400 hover:text-rose-600 text-sm font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️ ลบ</button>}
-                      </div>
-                      {order.crmSuggestion && <div className="mb-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl flex justify-between items-center shadow-sm animate-pulse"><div><p className="text-xs text-indigo-600 font-black mb-1">✨ พบประวัติลูกค้า!</p><p className="text-sm font-bold text-slate-800">{order.crmSuggestion.customerName}</p></div><button onClick={() => applyCrmData(order.id, order.crmSuggestion)} className="btn-cute bg-indigo-600 text-white text-xs font-bold py-2 px-4 rounded-lg shadow-md shadow-indigo-500/30">ใช้ข้อมูลนี้</button></div>}
-                      <textarea className={`w-full h-32 p-4 rounded-xl focus:outline-none focus:ring-4 resize-none transition-all shadow-inner ${boxColorClass}`} placeholder="วางที่อยู่ หรือ พิมพ์แค่เบอร์โทรศัพท์..." value={order.rawText} onChange={(e) => handleTextChange(order.id, e.target.value)} onFocus={() => handleFocus(order.id)} />
-                      {order.parsedData && order.parsedData.warnings.length > 0 && <div className="mt-3 text-sm font-bold text-rose-500 flex flex-col gap-1 bg-rose-50 p-3 rounded-lg border border-rose-100">{order.parsedData.warnings.map((w, i) => <span key={i}>⚠️ {w.replace('⚠️ ', '')}</span>)}</div>}
-                    </div>
-                  );
-                })}
-              </div>
-              
-              {/* กล่องขวาในโซนขวา: พรีวิวพิมพ์ */}
-              <div className="flex-1 bg-slate-100/50 rounded-2xl shadow-inner border-2 border-dashed border-slate-300 max-h-[75vh] overflow-y-auto print:max-h-none print:overflow-visible print:bg-white print:border-none print:shadow-none print:m-0 print:p-0 relative print:static">
-                 <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 p-5 flex justify-between items-center z-10 print:hidden"><h2 className="text-xl font-black text-gray-800 flex items-center gap-2"><span className="text-blue-500">2.</span> ตรวจสอบและสั่งพิมพ์</h2><button onClick={handleSaveAndPrint} className="btn-cute bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2">💾 บันทึก & สั่งพิมพ์</button></div>
-                 <div className="p-8 print:p-0 print:m-0">
-                  {orders.filter(o => o.parsedData).map((order) => (
-                    <div key={order.id} ref={(el) => (labelRefs.current[order.id] = el)} className="w-full max-w-sm mx-auto mb-10 bg-white border-2 border-black p-4 thermal-label shadow-xl card-hover print:max-w-none print:mx-0 print:mb-0 print:shadow-none print:transform-none">
-                       <div className="flex justify-between border-b-2 border-slate-200 pb-2 mb-3 font-bold text-sm print:border-black"><span>SmartLabel ✅</span><span className="text-gray-500">Admin: {user?.email?.split('@')[0]}</span></div>
-                       <div className="mb-3"><p className="text-xs text-gray-500 font-medium">ผู้ส่ง:</p><p className="font-bold text-sm">{storeProfile.name}</p></div>
-                       {order.parsedData.isCOD && <div className="bg-black text-white text-center py-2 mb-3 text-2xl font-black tracking-wider rounded-sm print:border-4 print:border-black">COD: {order.parsedData.codAmount}</div>}
-                       <div className="bg-slate-50 p-3 mb-3 rounded-sm border border-slate-200 print:bg-white print:border-black print:border-2"><p className="text-xs text-blue-600 font-black mb-1 print:text-black">ผู้รับ:</p><p className="text-xl font-black text-slate-800">{order.parsedData.customerName || 'ไม่มีชื่อ'}</p><p className="text-lg font-bold text-slate-700 mt-1">☎ {order.parsedData.phone || '-'}</p><p className="text-sm leading-relaxed mt-2 text-slate-600">{order.parsedData.address || 'ไม่มีที่อยู่'}</p></div>
-                       <div className="text-center text-5xl font-black mb-4 tracking-widest text-slate-900">{order.parsedData.zipcode || '00000'}</div>
-                       <div className="flex flex-col items-center border-t-2 border-b-2 border-slate-200 py-3 mb-3 print:border-black"><QRCodeSVG value={JSON.stringify({ id: order.id, cod: order.parsedData.isCOD ? order.parsedData.codAmount : 0, admin: user?.email })} size={60} /><p className="text-[10px] mt-2 font-mono uppercase font-bold text-slate-500 tracking-widest">REF: #{String(order.id).slice(-6)}</p></div>
-                       <div><p className="text-xs font-black text-slate-700 mb-1">รายการสินค้า:</p>{order.parsedData.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 font-medium text-slate-600">{order.parsedData.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-400 italic">- ไม่ระบุรายการ -</p>)}</div>
-                    </div>
-                  ))}
-                 </div>
-              </div>
-           </div>
-         </div>
-      ) : activeTab === 'dashboard' ? (
-         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 print:block print:gap-0 print:m-0">
-
-           {/* ======================================================== */}
-           {/* 💎 โซนซ้าย: Inbox อัจฉริยะ */}
-           {/* ======================================================== */}
-           <div className="xl:col-span-5 flex flex-col h-[75vh] print:hidden">
-             <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-t-2xl p-4 text-white flex justify-between items-center shadow-lg">
-               <h3 className="font-bold text-lg flex items-center gap-2"><span className="text-2xl">🤖</span> Smart Inbox</h3>
-               <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-sm shadow-sm border border-white/30">✨ Premium</span>
-             </div>
-             <div className="bg-white border-x border-b border-gray-200 rounded-b-2xl shadow-lg flex-1 p-4 overflow-y-auto">
-               {incomingChats.length === 0 ? (
-                 <div className="text-center text-gray-400 mt-10 flex flex-col items-center">
-                   <span className="text-4xl mb-3">📭</span>
-                   <p>ยังไม่มีข้อความเข้าใหม่...</p>
-                 </div>
-               ) : (
-                 <div className="space-y-4">
-                   {incomingChats.map((chat) => (
-                     <div key={chat.id} className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 hover:shadow-md transition-all duration-300 relative group">
-                       <div className="flex justify-between items-start mb-2">
-                         <span className="text-xs text-indigo-400 font-semibold bg-white px-2 py-1 rounded-md shadow-sm border border-indigo-50">ID ลูกค้า: {chat.senderId}</span>
-                         <span className="text-xs text-gray-400">{chat.timestamp ? new Date(chat.timestamp.toDate()).toLocaleTimeString('th-TH') : 'Just now'}</span>
-                       </div>
-                       <p className="text-gray-700 text-sm mb-4 line-clamp-3 leading-relaxed">"{chat.message}"</p>
-                       <button onClick={() => handleUseChat(chat.message)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all flex justify-center items-center gap-2 text-sm">
-                         <span>⚡</span> สกัดที่อยู่ด้วย AI
-                       </button>
-                     </div>
-                   ))}
-                 </div>
-               )}
-             </div>
-           </div>
-
-           {/* ======================================================== */}
-           {/* โซนขวา: ฟอร์มก๊อปวางเดิม และ พรีวิวพิมพ์ */}
-           {/* ======================================================== */}
-           <div className="xl:col-span-7 flex flex-col lg:flex-row gap-6">
-              
-              {/* กล่องซ้ายในโซนขวา: กรอกข้อมูล */}
-              <div className="flex-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 max-h-[75vh] overflow-y-auto print:hidden">
-                <h2 className="text-xl font-black mb-6 text-gray-800 flex items-center gap-2"><span className="text-blue-500">1.</span> วางข้อความแชต</h2>
-                {orders.map((order, index) => {
-                  let boxColorClass = 'border-gray-200 focus:ring-blue-300';
-                  if (order.parsedData) {
-                    const hasWarnings = order.parsedData.warnings.length > 0;
-                    boxColorClass = order.parsedData.isCOD ? (hasWarnings ? 'border-orange-400 bg-orange-50/50' : 'border-orange-500 bg-orange-50 ring-2 ring-orange-200') : (hasWarnings ? 'border-rose-400 bg-rose-50/50' : 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200');
-                  }
-                  return (
-                    <div key={order.id} className="mb-6 p-5 rounded-2xl border border-gray-100 bg-slate-50/50 hover:bg-white transition-colors group">
-                      <div className="flex justify-between items-center mb-3">
-                        <label className="font-bold text-gray-500 bg-white px-3 py-1 rounded-lg text-sm shadow-sm border border-gray-100">ออเดอร์ที่ {index + 1} {order.isSaved && <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">💾 บันทึกแล้ว</span>}</label>
-                        {(order.rawText !== '' || orders.length > 1) && <button onClick={() => handleDeleteOrder(order.id)} className="text-rose-400 hover:text-rose-600 text-sm font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️ ลบ</button>}
-                      </div>
-                      {order.crmSuggestion && <div className="mb-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl flex justify-between items-center shadow-sm animate-pulse"><div><p className="text-xs text-indigo-600 font-black mb-1">✨ พบประวัติลูกค้า!</p><p className="text-sm font-bold text-slate-800">{order.crmSuggestion.customerName}</p></div><button onClick={() => applyCrmData(order.id, order.crmSuggestion)} className="btn-cute bg-indigo-600 text-white text-xs font-bold py-2 px-4 rounded-lg shadow-md shadow-indigo-500/30">ใช้ข้อมูลนี้</button></div>}
-                      <textarea className={`w-full h-32 p-4 rounded-xl focus:outline-none focus:ring-4 resize-none transition-all shadow-inner ${boxColorClass}`} placeholder="วางที่อยู่ หรือ พิมพ์แค่เบอร์โทรศัพท์..." value={order.rawText} onChange={(e) => handleTextChange(order.id, e.target.value)} onFocus={() => handleFocus(order.id)} />
-                      {order.parsedData && order.parsedData.warnings.length > 0 && <div className="mt-3 text-sm font-bold text-rose-500 flex flex-col gap-1 bg-rose-50 p-3 rounded-lg border border-rose-100">{order.parsedData.warnings.map((w, i) => <span key={i}>⚠️ {w.replace('⚠️ ', '')}</span>)}</div>}
-                    </div>
-                  );
-                })}
-              </div>
-              
-              {/* กล่องขวาในโซนขวา: พรีวิวพิมพ์ */}
-              <div className="flex-1 bg-slate-100/50 rounded-2xl shadow-inner border-2 border-dashed border-slate-300 max-h-[75vh] overflow-y-auto print:max-h-none print:overflow-visible print:bg-white print:border-none print:shadow-none print:m-0 print:p-0 relative print:static">
-                 <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 p-5 flex justify-between items-center z-10 print:hidden"><h2 className="text-xl font-black text-gray-800 flex items-center gap-2"><span className="text-blue-500">2.</span> ตรวจสอบและสั่งพิมพ์</h2><button onClick={handleSaveAndPrint} className="btn-cute bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2">💾 บันทึก & สั่งพิมพ์</button></div>
-                 <div className="p-8 print:p-0 print:m-0">
-                  {orders.filter(o => o.parsedData).map((order) => (
-                    <div key={order.id} ref={(el) => (labelRefs.current[order.id] = el)} className="w-full max-w-sm mx-auto mb-10 bg-white border-2 border-black p-4 thermal-label shadow-xl card-hover print:max-w-none print:mx-0 print:mb-0 print:shadow-none print:transform-none">
-                       <div className="flex justify-between border-b-2 border-slate-200 pb-2 mb-3 font-bold text-sm print:border-black"><span>SmartLabel ✅</span><span className="text-gray-500">Admin: {user?.email?.split('@')[0]}</span></div>
-                       <div className="mb-3"><p className="text-xs text-gray-500 font-medium">ผู้ส่ง:</p><p className="font-bold text-sm">{storeProfile.name}</p></div>
-                       {order.parsedData.isCOD && <div className="bg-black text-white text-center py-2 mb-3 text-2xl font-black tracking-wider rounded-sm print:border-4 print:border-black">COD: {order.parsedData.codAmount}</div>}
-                       <div className="bg-slate-50 p-3 mb-3 rounded-sm border border-slate-200 print:bg-white print:border-black print:border-2"><p className="text-xs text-blue-600 font-black mb-1 print:text-black">ผู้รับ:</p><p className="text-xl font-black text-slate-800">{order.parsedData.customerName || 'ไม่มีชื่อ'}</p><p className="text-lg font-bold text-slate-700 mt-1">☎ {order.parsedData.phone || '-'}</p><p className="text-sm leading-relaxed mt-2 text-slate-600">{order.parsedData.address || 'ไม่มีที่อยู่'}</p></div>
-                       <div className="text-center text-5xl font-black mb-4 tracking-widest text-slate-900">{order.parsedData.zipcode || '00000'}</div>
-                       <div className="flex flex-col items-center border-t-2 border-b-2 border-slate-200 py-3 mb-3 print:border-black"><QRCodeSVG value={JSON.stringify({ id: order.id, cod: order.parsedData.isCOD ? order.parsedData.codAmount : 0, admin: user?.email })} size={60} /><p className="text-[10px] mt-2 font-mono uppercase font-bold text-slate-500 tracking-widest">REF: #{String(order.id).slice(-6)}</p></div>
-                       <div><p className="text-xs font-black text-slate-700 mb-1">รายการสินค้า:</p>{order.parsedData.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 font-medium text-slate-600">{order.parsedData.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-400 italic">- ไม่ระบุรายการ -</p>)}</div>
-                    </div>
-                  ))}
-                 </div>
-              </div>
-           </div>
-         </div>
-      ) : activeTab === 'dashboard' ? (
-         <div className="flex flex-col lg:flex-row gap-6 print:block print:gap-0 print:m-0">
-            <div className="flex-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 max-h-[75vh] overflow-y-auto print:hidden">
-              <h2 className="text-xl font-black mb-6 text-gray-800 flex items-center gap-2"><span className="text-blue-500">1.</span> วางข้อความแชต</h2>
-              {orders.map((order, index) => {
-                let boxColorClass = 'border-gray-200 focus:ring-blue-300';
-                if (order.parsedData) {
-                  const hasWarnings = order.parsedData.warnings.length > 0;
-                  boxColorClass = order.parsedData.isCOD ? (hasWarnings ? 'border-orange-400 bg-orange-50/50' : 'border-orange-500 bg-orange-50 ring-2 ring-orange-200') : (hasWarnings ? 'border-rose-400 bg-rose-50/50' : 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200');
-                }
-                return (
-                  <div key={order.id} className="mb-6 p-5 rounded-2xl border border-gray-100 bg-slate-50/50 hover:bg-white transition-colors group">
-                    <div className="flex justify-between items-center mb-3"><label className="font-bold text-gray-500 bg-white px-3 py-1 rounded-lg text-sm shadow-sm border border-gray-100">ออเดอร์ที่ {index + 1} {order.isSaved && <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">💾 บันทึกแล้ว</span>}</label>{(order.rawText !== '' || orders.length > 1) && <button onClick={() => handleDeleteOrder(order.id)} className="text-rose-400 hover:text-rose-600 text-sm font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️ ลบ</button>}</div>
-                    {order.crmSuggestion && <div className="mb-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl flex justify-between items-center shadow-sm animate-pulse"><div><p className="text-xs text-indigo-600 font-black mb-1">✨ พบประวัติลูกค้า!</p><p className="text-sm font-bold text-slate-800">{order.crmSuggestion.customerName}</p></div><button onClick={() => applyCrmData(order.id, order.crmSuggestion)} className="btn-cute bg-indigo-600 text-white text-xs font-bold py-2 px-4 rounded-lg shadow-md shadow-indigo-500/30">ใช้ข้อมูลนี้</button></div>}
-                    <textarea 
-                      className={`w-full h-32 p-4 rounded-xl focus:outline-none focus:ring-4 resize-none transition-all shadow-inner ${boxColorClass}`} 
-                      placeholder="วางที่อยู่ หรือ พิมพ์แค่เบอร์โทรศัพท์..." 
-                      value={order.rawText} 
-                      onChange={(e) => handleTextChange(order.id, e.target.value)} 
-                      onFocus={() => handleFocus(order.id)} 
-                    />
-                    {order.parsedData && order.parsedData.warnings.length > 0 && <div className="mt-3 text-sm font-bold text-rose-500 flex flex-col gap-1 bg-rose-50 p-3 rounded-lg border border-rose-100">{order.parsedData.warnings.map((w, i) => <span key={i}>⚠️ {w.replace('⚠️ ', '')}</span>)}</div>}
-                  </div>
-                );
-              })}
-            </div>
+      ) : activeTab === 'maker' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 print:block print:gap-0 print:m-0">
             
-            <div className="flex-1 bg-slate-100/50 rounded-2xl shadow-inner border-2 border-dashed border-slate-300 max-h-[75vh] overflow-y-auto print:max-h-none print:overflow-visible print:bg-white print:border-none print:shadow-none print:m-0 print:p-0 relative print:static">
-               <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 p-5 flex justify-between items-center z-10 print:hidden"><h2 className="text-xl font-black text-gray-800 flex items-center gap-2"><span className="text-blue-500">2.</span> ตรวจสอบและสั่งพิมพ์</h2><button onClick={handleSaveAndPrint} className="btn-cute bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2">💾 บันทึก & สั่งพิมพ์</button></div>
-               <div className="p-8 print:p-0 print:m-0">
-                {orders.filter(o => o.parsedData).map((order) => (
-                  <div key={order.id} ref={(el) => (labelRefs.current[order.id] = el)} className="w-full max-w-sm mx-auto mb-10 bg-white border-2 border-black p-4 thermal-label shadow-xl card-hover print:max-w-none print:mx-0 print:mb-0 print:shadow-none print:transform-none">
-                     <div className="flex justify-between border-b-2 border-slate-200 pb-2 mb-3 font-bold text-sm print:border-black"><span>SmartLabel ✅</span><span className="text-gray-500">Admin: {user.email.split('@')[0]}</span></div>
-                     <div className="mb-3"><p className="text-xs text-gray-500 font-medium">ผู้ส่ง:</p><p className="font-bold text-sm">{storeProfile.name}</p></div>
-                     {order.parsedData.isCOD && <div className="bg-black text-white text-center py-2 mb-3 text-2xl font-black tracking-wider rounded-sm print:border-4 print:border-black">COD: {order.parsedData.codAmount}</div>}
-                     <div className="bg-slate-50 p-3 mb-3 rounded-sm border border-slate-200 print:bg-white print:border-black print:border-2"><p className="text-xs text-blue-600 font-black mb-1 print:text-black">ผู้รับ:</p><p className="text-xl font-black text-slate-800">{order.parsedData.customerName || 'ไม่มีชื่อ'}</p><p className="text-lg font-bold text-slate-700 mt-1">☎ {order.parsedData.phone || '-'}</p><p className="text-sm leading-relaxed mt-2 text-slate-600">{order.parsedData.address || 'ไม่มีที่อยู่'}</p></div>
-                     <div className="text-center text-5xl font-black mb-4 tracking-widest text-slate-900">{order.parsedData.zipcode || '00000'}</div>
-                     <div className="flex flex-col items-center border-t-2 border-b-2 border-slate-200 py-3 mb-3 print:border-black"><QRCodeSVG value={JSON.stringify({ id: order.id, cod: order.parsedData.isCOD ? order.parsedData.codAmount : 0, admin: user.email })} size={60} /><p className="text-[10px] mt-2 font-mono uppercase font-bold text-slate-500 tracking-widest">REF: #{String(order.id).slice(-6)}</p></div>
-                     <div><p className="text-xs font-black text-slate-700 mb-1">รายการสินค้า:</p>{order.parsedData.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 font-medium text-slate-600">{order.parsedData.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-400 italic">- ไม่ระบุรายการ -</p>)}</div>
+            {/* ======================================================== */}
+            {/* 💎 โซนซ้าย: Inbox อัจฉริยะ (ดึงแชทอัตโนมัติ) */}
+            {/* ======================================================== */}
+            <div className="lg:col-span-4 flex flex-col h-[75vh] print:hidden">
+              <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-t-2xl p-4 text-white flex justify-between items-center shadow-lg">
+                <h3 className="font-bold text-lg flex items-center gap-2"><span className="text-2xl">🤖</span> Smart Inbox</h3>
+                <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-sm shadow-sm border border-white/30">✨ Premium</span>
+              </div>
+              <div className="bg-white border-x border-b border-gray-200 rounded-b-2xl shadow-lg flex-1 p-4 overflow-y-auto relative">
+                {/* 🛑 กระจกฝ้าล็อคฟีเจอร์ Premium (จะโชว์ถ้าไม่ใช่ Premium) */}
+               {storeProfile?.plan !== 'Premium' && (
+                 <div className="absolute inset-0 bg-white/70 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center rounded-b-2xl">
+                    <span className="text-6xl mb-4 drop-shadow-md">🔒</span>
+                    <h4 className="text-xl font-black text-indigo-900 mb-2">ฟีเจอร์ระดับพรีเมียม</h4>
+                    <p className="text-sm text-indigo-700 text-center px-6 mb-5 font-medium leading-relaxed">
+                      ยกระดับร้านค้าของคุณ! ปลดล็อกระบบดูดแชทเพจ Facebook<br/>และให้ AI สกัดที่อยู่จัดส่งให้อัตโนมัติในคลิกเดียว
+                    </p>
+                    <button onClick={() => alert('✨ สนใจอัปเกรดเป็นแพ็กเกจ Premium\nกรุณาติดต่อแอดมิน (Line: @SmartLabel) เพื่อปลดล็อกการใช้งานครับ!')} className="btn-cute bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-8 py-3 rounded-full font-bold shadow-lg shadow-indigo-500/40 flex items-center gap-2 hover:scale-105 transition-transform">
+                       ⭐ อัปเกรดแพ็กเกจเลย
+                    </button>
+                 </div>
+               )}
+                {incomingChats.length === 0 ? (
+                  <div className="text-center text-gray-400 mt-10 flex flex-col items-center">
+                    <span className="text-4xl mb-3">📭</span>
+                    <p>ยังไม่มีข้อความเข้าใหม่...</p>
                   </div>
-                ))}
-               </div>
+                ) : (
+                  <div className="space-y-4">
+                    {incomingChats.map((chat) => (
+                      <div key={chat.id} className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 hover:shadow-md transition-all duration-300 relative group">
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="text-xs text-indigo-400 font-semibold bg-white px-2 py-1 rounded-md shadow-sm border border-indigo-50">ID ลูกค้า: {chat.senderId}</span>
+                          <span className="text-xs text-gray-400">{chat.timestamp ? new Date(chat.timestamp.toDate()).toLocaleTimeString('th-TH') : 'Just now'}</span>
+                        </div>
+                        <p className="text-gray-700 text-sm mb-4 line-clamp-3 leading-relaxed">"{chat.message}"</p>
+                        {/* 🔥 เปลี่ยนปุ่มเดิมเป็น 2 ปุ่มนี้ครับ */}
+                          <div className="flex gap-2 mt-2">
+                            <button 
+                              onClick={() => handleUseChat(chat)} // ส่งไปทั้งก้อน chat ไม่ใช่แค่ message
+                              className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-3 rounded-lg shadow-sm transition-all flex justify-center items-center gap-1 text-sm"
+                            >
+                              <span>⚡</span> สกัดที่อยู่
+                            </button>
+                            <button 
+                              onClick={() => handleDismissChat(chat.id)} 
+                              className="bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 font-bold py-2 px-3 rounded-lg transition-all flex justify-center items-center text-sm border border-gray-200"
+                              title="ซ่อนข้อความนี้"
+                            >
+                              ❌
+                            </button>
+                          </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-         </div>
+
+            {/* ======================================================== */}
+            {/* โซนขวา: ฟอร์มก๊อปวางเดิม และ พรีวิวพิมพ์ */}
+            {/* ======================================================== */}
+            <div className="lg:col-span-8 flex flex-col lg:flex-row gap-6">
+                
+                {/* กล่องซ้ายในโซนขวา: กรอกข้อมูล */}
+                <div className="flex-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 max-h-[75vh] overflow-y-auto print:hidden">
+                  <h2 className="text-xl font-black mb-6 text-gray-800 flex items-center gap-2"><span className="text-blue-500">1.</span> วางข้อความแชต</h2>
+                  {orders.map((order, index) => {
+                    let boxColorClass = 'border-gray-200 focus:ring-blue-300';
+                    if (order.parsedData) {
+                      const hasWarnings = order.parsedData.warnings.length > 0;
+                      boxColorClass = order.parsedData.isCOD ? (hasWarnings ? 'border-orange-400 bg-orange-50/50' : 'border-orange-500 bg-orange-50 ring-2 ring-orange-200') : (hasWarnings ? 'border-rose-400 bg-rose-50/50' : 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200');
+                    }
+                    return (
+                      <div key={order.id} className="mb-6 p-5 rounded-2xl border border-gray-100 bg-slate-50/50 hover:bg-white transition-colors group">
+                        <div className="flex justify-between items-center mb-3">
+                          <label className="font-bold text-gray-500 bg-white px-3 py-1 rounded-lg text-sm shadow-sm border border-gray-100">ออเดอร์ที่ {index + 1} {order.isSaved && <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">💾 บันทึกแล้ว</span>}</label>
+                          {(order.rawText !== '' || orders.length > 1) && <button onClick={() => handleDeleteOrder(order.id)} className="text-rose-400 hover:text-rose-600 text-sm font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️ ลบ</button>}
+                        </div>
+                        {order.crmSuggestion && <div className="mb-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl flex justify-between items-center shadow-sm animate-pulse"><div><p className="text-xs text-indigo-600 font-black mb-1">✨ พบประวัติลูกค้า!</p><p className="text-sm font-bold text-slate-800">{order.crmSuggestion.customerName}</p></div><button onClick={() => applyCrmData(order.id, order.crmSuggestion)} className="btn-cute bg-indigo-600 text-white text-xs font-bold py-2 px-4 rounded-lg shadow-md shadow-indigo-500/30">ใช้ข้อมูลนี้</button></div>}
+                        <textarea className={`w-full h-32 p-4 rounded-xl focus:outline-none focus:ring-4 resize-none transition-all shadow-inner ${boxColorClass}`} placeholder="วางที่อยู่ หรือ พิมพ์แค่เบอร์โทรศัพท์..." value={order.rawText} onChange={(e) => handleTextChange(order.id, e.target.value)} onFocus={() => handleFocus(order.id)} />
+                        {order.parsedData && order.parsedData.warnings.length > 0 && <div className="mt-3 text-sm font-bold text-rose-500 flex flex-col gap-1 bg-rose-50 p-3 rounded-lg border border-rose-100">{order.parsedData.warnings.map((w, i) => <span key={i}>⚠️ {w.replace('⚠️ ', '')}</span>)}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                {/* กล่องขวาในโซนขวา: พรีวิวพิมพ์ */}
+                <div className="flex-1 bg-slate-100/50 rounded-2xl shadow-inner border-2 border-dashed border-slate-300 max-h-[75vh] overflow-y-auto print:max-h-none print:overflow-visible print:bg-white print:border-none print:shadow-none print:m-0 print:p-0 relative print:static">
+                  <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 p-5 flex justify-between items-center z-10 print:hidden"><h2 className="text-xl font-black text-gray-800 flex items-center gap-2"><span className="text-blue-500">2.</span> ตรวจสอบและสั่งพิมพ์</h2><button onClick={handleSaveAndPrint} className="btn-cute bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2">💾 บันทึก & สั่งพิมพ์</button></div>
+                  <div className="p-8 print:p-0 print:m-0">
+                    {orders.filter(o => o.parsedData).map((order) => (
+                      <div key={order.id} ref={(el) => (labelRefs.current[order.id] = el)} className="w-full max-w-sm mx-auto mb-10 bg-white border-2 border-black p-4 thermal-label shadow-xl card-hover print:max-w-none print:mx-0 print:mb-0 print:shadow-none print:transform-none">
+                        <div className="flex justify-between border-b-2 border-slate-200 pb-2 mb-3 font-bold text-sm print:border-black"><span>SmartLabel ✅</span><span className="text-gray-500">Admin: {user?.email?.split('@')[0]}</span></div>
+                        <div className="mb-3"><p className="text-xs text-gray-500 font-medium">ผู้ส่ง:</p><p className="font-bold text-sm">{storeProfile.name}</p></div>
+                        {order.parsedData.isCOD && <div className="bg-black text-white text-center py-2 mb-3 text-2xl font-black tracking-wider rounded-sm print:border-4 print:border-black">COD: {order.parsedData.codAmount}</div>}
+                        <div className="bg-slate-50 p-3 mb-3 rounded-sm border border-slate-200 print:bg-white print:border-black print:border-2"><p className="text-xs text-blue-600 font-black mb-1 print:text-black">ผู้รับ:</p><p className="text-xl font-black text-slate-800">{order.parsedData.customerName || 'ไม่มีชื่อ'}</p><p className="text-lg font-bold text-slate-700 mt-1">☎ {order.parsedData.phone || '-'}</p><p className="text-sm leading-relaxed mt-2 text-slate-600">{order.parsedData.address || 'ไม่มีที่อยู่'}</p></div>
+                        <div className="text-center text-5xl font-black mb-4 tracking-widest text-slate-900">{order.parsedData.zipcode || '00000'}</div>
+                        <div className="flex flex-col items-center border-t-2 border-b-2 border-slate-200 py-3 mb-3 print:border-black"><QRCodeSVG value={JSON.stringify({ id: order.id, cod: order.parsedData.isCOD ? order.parsedData.codAmount : 0, admin: user?.email })} size={60} /><p className="text-[10px] mt-2 font-mono uppercase font-bold text-slate-500 tracking-widest">REF: #{String(order.id).slice(-6)}</p></div>
+                        <div><p className="text-xs font-black text-slate-700 mb-1">รายการสินค้า:</p>{order.parsedData.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 font-medium text-slate-600">{order.parsedData.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-400 italic">- ไม่ระบุรายการ -</p>)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+            </div>
+          </div>
       ) : activeTab === 'dashboard' ? (
          <div className="flex flex-col gap-6">
             {/* 1. สรุปยอดรวม (Top Cards) */}
@@ -1504,40 +1516,40 @@ const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => 
             </div>
          </div>
       ) : activeTab === 'team' && userRole === 'Owner' ? (
-        <div className="flex flex-col lg:flex-row gap-6">
-          <div className="w-full lg:w-1/3">
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 sticky top-6">
-              <h2 className="text-xl font-black mb-6 text-slate-800 flex items-center gap-2">➕ เพิ่มพนักงาน</h2>
-              <form onSubmit={handleAddStaff}>
-                <div className="mb-5"><label className="block text-sm font-bold text-slate-700 mb-2">ชื่อพนักงาน</label><input type="text" required value={newStaff.name} onChange={(e)=>setNewStaff({...newStaff, name: e.target.value})} className="w-full border border-slate-200 p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none bg-slate-50 transition-all" placeholder="เช่น น้องฟ้าใส" /></div>
-                <div className="mb-5"><label className="block text-sm font-bold text-slate-700 mb-2">เบอร์โทรศัพท์ (ใช้ล็อกอิน)</label><input type="text" maxLength="10" required value={newStaff.phone} onChange={(e)=>setNewStaff({...newStaff, phone: e.target.value})} className="w-full border border-slate-200 p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none bg-slate-50 transition-all" placeholder="089xxxxxxx" /><div className="bg-blue-50 text-blue-700 text-xs p-2 rounded-lg mt-2 font-medium">🔑 รหัสผ่านเริ่มต้นจะถูกตั้งเป็น: 123456</div></div>
-                <div className="mb-8"><label className="block text-sm font-bold text-slate-700 mb-2">สิทธิ์การเข้าถึง</label><select value={newStaff.role} onChange={(e)=>setNewStaff({...newStaff, role: e.target.value})} className="w-full border border-slate-200 p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none bg-slate-50 font-medium appearance-none"><option value="Staff">👨‍💻 พนักงาน (จ่าหน้าอย่างเดียว)</option><option value="Admin">💼 ผู้จัดการ (ดูสถิติได้)</option></select></div>
-                <button type="submit" className="btn-cute w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-500/30 text-lg">บันทึกข้อมูลพนักงาน</button>
-              </form>
+          <div className="flex flex-col lg:flex-row gap-6">
+            <div className="w-full lg:w-1/3">
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 sticky top-6">
+                <h2 className="text-xl font-black mb-6 text-slate-800 flex items-center gap-2">➕ เพิ่มพนักงาน</h2>
+                <form onSubmit={handleAddStaff}>
+                  <div className="mb-5"><label className="block text-sm font-bold text-slate-700 mb-2">ชื่อพนักงาน</label><input type="text" required value={newStaff.name} onChange={(e)=>setNewStaff({...newStaff, name: e.target.value})} className="w-full border border-slate-200 p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none bg-slate-50 transition-all" placeholder="เช่น น้องฟ้าใส" /></div>
+                  <div className="mb-5"><label className="block text-sm font-bold text-slate-700 mb-2">เบอร์โทรศัพท์ (ใช้ล็อกอิน)</label><input type="text" maxLength="10" required value={newStaff.phone} onChange={(e)=>setNewStaff({...newStaff, phone: e.target.value})} className="w-full border border-slate-200 p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none bg-slate-50 transition-all" placeholder="089xxxxxxx" /><div className="bg-blue-50 text-blue-700 text-xs p-2 rounded-lg mt-2 font-medium">🔑 รหัสผ่านเริ่มต้นจะถูกตั้งเป็น: 123456</div></div>
+                  <div className="mb-8"><label className="block text-sm font-bold text-slate-700 mb-2">สิทธิ์การเข้าถึง</label><select value={newStaff.role} onChange={(e)=>setNewStaff({...newStaff, role: e.target.value})} className="w-full border border-slate-200 p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none bg-slate-50 font-medium appearance-none"><option value="Staff">👨‍💻 พนักงาน (จ่าหน้าอย่างเดียว)</option><option value="Admin">💼 ผู้จัดการ (ดูสถิติได้)</option></select></div>
+                  <button type="submit" className="btn-cute w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-500/30 text-lg">บันทึกข้อมูลพนักงาน</button>
+                </form>
+              </div>
             </div>
-          </div>
-          <div className="w-full lg:w-2/3">
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-              <h2 className="text-xl font-black mb-6 text-slate-800 flex items-center gap-2">👥 ทีมงานของคุณ</h2>
-              <div className="overflow-hidden border border-slate-200 rounded-2xl">
-                <table className="w-full text-sm text-left"><thead className="bg-slate-50 uppercase text-xs font-black text-slate-500 tracking-wider"><tr><th className="py-4 px-6">ชื่อ</th><th className="py-4 px-6">เบอร์โทร (ล็อกอิน)</th><th className="py-4 px-6">สิทธิ์</th><th className="py-4 px-6 text-center">จัดการ</th></tr></thead>
-                  <tbody>
-                    {staffList.length === 0 ? ( <tr><td colSpan="4" className="text-center py-12 text-slate-400 font-medium">ยังไม่มีพนักงานในระบบ...</td></tr>
-                    ) : ( staffList.map((staff, idx) => (
-                        <tr key={idx} className="border-t border-slate-100 hover:bg-blue-50/50 transition-colors">
-                          <td className="py-4 px-6 font-bold text-slate-800">{staff.name}</td>
-                          <td className="py-4 px-6 font-mono font-medium text-slate-600">{staff.phone}</td>
-                          <td className="py-4 px-6"><span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${staff.role === 'Admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>{staff.role}</span></td>
-                          <td className="py-4 px-6 text-center"><button onClick={() => handleDeleteStaff(staff.id)} className="btn-cute text-rose-500 hover:text-white font-bold text-xs bg-rose-50 hover:bg-rose-500 px-3 py-1.5 rounded-lg transition-colors">ลบออก</button></td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+            <div className="w-full lg:w-2/3">
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                <h2 className="text-xl font-black mb-6 text-slate-800 flex items-center gap-2">👥 ทีมงานของคุณ</h2>
+                <div className="overflow-hidden border border-slate-200 rounded-2xl">
+                  <table className="w-full text-sm text-left"><thead className="bg-slate-50 uppercase text-xs font-black text-slate-500 tracking-wider"><tr><th className="py-4 px-6">ชื่อ</th><th className="py-4 px-6">เบอร์โทร (ล็อกอิน)</th><th className="py-4 px-6">สิทธิ์</th><th className="py-4 px-6 text-center">จัดการ</th></tr></thead>
+                    <tbody>
+                      {staffList.length === 0 ? ( <tr><td colSpan="4" className="text-center py-12 text-slate-400 font-medium">ยังไม่มีพนักงานในระบบ...</td></tr>
+                      ) : ( staffList.map((staff, idx) => (
+                          <tr key={idx} className="border-t border-slate-100 hover:bg-blue-50/50 transition-colors">
+                            <td className="py-4 px-6 font-bold text-slate-800">{staff.name}</td>
+                            <td className="py-4 px-6 font-mono font-medium text-slate-600">{staff.phone}</td>
+                            <td className="py-4 px-6"><span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${staff.role === 'Admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>{staff.role}</span></td>
+                            <td className="py-4 px-6 text-center"><button onClick={() => handleDeleteStaff(staff.id)} className="btn-cute text-rose-500 hover:text-white font-bold text-xs bg-rose-50 hover:bg-rose-500 px-3 py-1.5 rounded-lg transition-colors">ลบออก</button></td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
-        </div>
       ) : activeTab === 'affiliates' && userRole === 'SuperAdmin' ? (
          <div className="flex flex-col gap-6">
            {/* ตารางนักการตลาด */}
