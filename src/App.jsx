@@ -218,7 +218,13 @@ export default function App() {
             
             // 🔥 ถ้าเครื่องนี้ยังไม่มีโปรไฟล์ ให้ดึงชื่อร้านตอนสมัครจาก Firestore มาใส่เป็นค่าเริ่มต้น
             if (!localStorage.getItem('smartlabel_profile') && data.storeName) {
-              setStoreProfile({ name: data.storeName, phone: '', address: '' });
+            // 📥 ดึงข้อมูลร้านค้าจาก Firebase มาใส่ตะกร้าหลัก (storeProfile) ให้ครบทุกช่อง!
+                    setStoreProfile({
+                      name: data.storeName || "",
+                      phone: data.phone || "",          // 👈 บอกให้ดึงเบอร์โทรมาด้วย!
+                      address: data.address || "",      // 👈 บอกให้ดึงที่อยู่มาด้วย!
+                      plan: data.plan || "Free"         // 👈 ดึงแพ็กเกจมาด้วย (ที่เราทำกันเมื่อวาน)
+                    });
             }
             if (!localStorage.getItem(`has_seen_tutorial_${currentUser.uid}`) && data.role === 'Owner') {
               setShowTutorial(true);
@@ -494,22 +500,26 @@ useEffect(() => {
       if (labelRefs.current[id]) { labelRefs.current[id].scrollIntoView({ behavior: 'smooth', block: 'center' }); }
   };
 
-  const handleSaveProfile = async () => {
+const handleSaveProfile = async () => {
     try {
       if (!user) return;
       
       const userRef = doc(db, "users", user.uid);
+      
+      // 1. 💾 สั่งบันทึกลง Firebase (ดึงของจากตะกร้า tempProfile ไปเซฟ)
       await setDoc(userRef, {
-        storeName: storeProfile.name,
-        phone: storeProfile.phone,
-        address: storeProfile.address,
-        // 🔥 จุดสำคัญ: บันทึก ID เพจที่แม่ค้าเลือกเข้า Firebase!
+        storeName: tempProfile.name,      // 👈 เปลี่ยนตรงนี้เป็น temp
+        phone: tempProfile.phone,         // 👈 เปลี่ยนตรงนี้เป็น temp
+        address: tempProfile.address,     // 👈 เปลี่ยนตรงนี้เป็น temp
         connectedPages: selectedPages, 
         updatedAt: serverTimestamp()
       }, { merge: true });
 
+      // 2. 🔄 อัปเดตตะกร้าหลัก (เพื่อให้หน้าเว็บด้านหลังเปลี่ยนชื่อ/เบอร์ทันทีโดยไม่ต้อง F5)
+      setStoreProfile(tempProfile);
+
       alert("บันทึกข้อมูลร้านค้าและตั้งค่าเพจสำเร็จเรียบร้อยครับ!");
-      setIsSettingsOpen(false);
+      setIsSettingsOpen(false); // ปิดหน้าต่าง
     } catch (error) {
       console.error("Error saving profile:", error);
       alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ");
@@ -625,7 +635,7 @@ useEffect(() => {
       // 2. เตรียมข้อมูลอัปเดตโควต้า และเช็คว่าต้องเลื่อนขั้นเป็น Premium ไหม
       let userUpdates = { quota: increment(requestedQuota) };
       
-      // 🔥 ถ้าลูกค้าซื้อแพ็กเกจ 5,000 ใบ (490 บาท) ให้เลื่อนขั้นเป็น Premium ทันที!
+      // 🔥 ถ้าลูกค้าซื้อแพ็กเกจ 5,000 ใบ (500 บาท) ให้เลื่อนขั้นเป็น Premium ทันที!
       if (requestedQuota === 5000) {
          userUpdates.plan = 'Premium'; 
       }
@@ -749,16 +759,16 @@ if (!user && !isAuthView) {
                 <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-3 rounded-xl border-2 border-blue-600 text-blue-600 font-bold hover:bg-blue-50">เลือกแพ็กเกจนี้</button>
               </div>
 
-              {/* 🔥 แพ็กเกจพรีเมียม 490 บาท/เดือน (พระเอกของเรา) */}
+              {/* 🔥 แพ็กเกจพรีเมียม 500 บาท (พระเอกของเรา) */}
               <div className="bg-gradient-to-b from-indigo-50 to-white p-8 rounded-3xl shadow-2xl border-4 border-indigo-600 relative overflow-hidden card-hover transform md:-translate-y-4 flex flex-col justify-between">
                 <div className="absolute top-0 right-0 bg-indigo-600 text-white px-6 py-2 font-black text-sm rounded-bl-2xl shadow-sm tracking-widest">พรีเมียม 💎</div>
                 <div>
                   <p className="text-indigo-600 font-bold mb-4 tracking-widest uppercase text-sm">คุ้มค่าที่สุด</p>
                   <div className="flex items-end gap-1 mb-4">
-                    <p className="text-5xl font-black text-slate-800">฿490</p>
-                    <p className="text-lg text-slate-500 font-bold mb-1">/เดือน</p>
+                    <p className="text-5xl font-black text-slate-800">฿500</p>
+                    {/*<p className="text-lg text-slate-500 font-bold mb-1">/เดือน</p>*/}
                   </div>
-                  <p className="text-slate-500 mb-6 font-medium">ได้รับ 5,000 จ่าหน้า <br/> <span className="text-sm">(คุ้มสุดๆ เพียง 0.09 บาท/ใบ)</span></p>
+                  <p className="text-slate-500 mb-6 font-medium">ได้รับ 5,000 จ่าหน้า <br/> <span className="text-sm">(คุ้มสุดๆ เพียง 0.10 บาท/ใบ)</span></p>
                   <ul className="text-sm text-indigo-900 mb-8 space-y-3 font-bold">
                     <li className="flex items-center gap-2">✨ ระบบดูดแชทเพจ Facebook</li>
                     <li className="flex items-center gap-2">⚡ AI สกัดที่อยู่อัตโนมัติ</li>
@@ -771,10 +781,10 @@ if (!user && !isAuthView) {
 
             </div>
             
-            {/* ป้ายประกาศสำหรับขาใหญ่ */}
+            {/* ป้ายประกาศสำหรับขาใหญ่ 
             <div className="mt-16 text-slate-500 font-medium bg-white p-6 rounded-2xl shadow-sm border border-slate-200 inline-block">
               🚀 ส่งมากกว่า 5,000 ชิ้น/เดือน? เตรียมพบกับแพ็กเกจ <span className="font-black text-slate-800">Ultimate</span> เร็วๆ นี้! <button className="text-indigo-600 font-bold hover:underline ml-2">ติดต่อทีมงานเพื่อจองคิว</button>
-            </div>
+            </div>*/}
           </div>
         </section>
         
@@ -1090,7 +1100,7 @@ if (!user && !isAuthView) {
               <div onClick={() => setSelectedPackage(5000)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 5000 ? 'border-indigo-500 bg-indigo-50 scale-[1.03] shadow-md shadow-indigo-500/20' : 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'}`}>
                 {selectedPackage === 5000 && <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">พรีเมียม 💎</div>}
                 <p className={`font-black text-xl ${selectedPackage === 5000 ? 'text-indigo-700' : 'text-slate-700'}`}>5,000 ใบ</p>
-                <p className="text-xs text-indigo-600 mt-1 font-black">+ ดูดแชท (490฿)</p>
+                <p className="text-xs text-indigo-600 mt-1 font-black">+ ดูดแชท (500฿)</p>
               </div>
             </div>
 
@@ -1099,14 +1109,14 @@ if (!user && !isAuthView) {
               <div className="bg-white p-3 rounded-xl shadow-sm mb-3 border border-slate-100">
                 {/* 🎯 สลับยอดเงิน QR Code ให้ตรงกับ 3 แพ็กเกจ */}
                 <QRCodeSVG 
-                  value={generatePayload("0874484448", { amount: selectedPackage === 100 ? 50 : selectedPackage === 500 ? 200 : 490 })} 
+                  value={generatePayload("0874484448", { amount: selectedPackage === 100 ? 50 : selectedPackage === 500 ? 200 : 500 })} 
                   size={130} 
                 />
               </div>
               <p className="text-sm font-black text-slate-800">พร้อมเพย์: ท็อปปี้สมาร์ท โลจิสติกส์</p>
               <p className="text-lg font-black text-emerald-600 mt-1 bg-emerald-50 px-4 py-1 rounded-full border border-emerald-100">
                 {/* 🎯 สลับข้อความยอดชำระให้ตรงกัน */}
-                ยอดชำระ: ฿{selectedPackage === 100 ? '50.00' : selectedPackage === 500 ? '200.00' : '490.00'}
+                ยอดชำระ: ฿{selectedPackage === 100 ? '50.00' : selectedPackage === 500 ? '200.00' : '500.00'}
               </p>
             </div>
 
@@ -1283,7 +1293,12 @@ if (!user && !isAuthView) {
                 </div>
               <span className="text-slate-600 font-medium hidden md:inline-block"><span className="text-slate-400 mr-2">📍 ร้าน:</span>{storeProfile.name}</span>
             </div>
-            <button onClick={() => { setTempProfile(storeProfile); setIsSettingsOpen(true); }} className="btn-cute bg-white border border-slate-200 text-slate-700 px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-colors">⚙️ ตั้งค่าร้าน</button>
+              <button 
+                onClick={() => {
+                  setTempProfile(storeProfile); // 👈 1. บังคับโคลนข้อมูลของจริงล่าสุด มาใส่ตะกร้าชั่วคราวก่อน
+                  setIsSettingsOpen(true);      // 👈 2. ค่อยสั่งเปิดหน้าต่าง
+                }} className="btn-cute bg-white border border-slate-200 text-slate-700 px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-colors">⚙️ ตั้งค่าร้าน
+              </button>
           </div>
         )}
       </header>
