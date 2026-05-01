@@ -842,7 +842,7 @@ if (!user && !isAuthView) {
 
   if (userRole === 'Affiliate' && affiliateData) {
     const refLink = `${window.location.origin}/?ref=${affiliateData.referralCode}`;
-    const adText = `📦 จบปัญหาหลังบ้านร้านค้าออนไลน์ที่วุ่นวาย! ด้วย SmartLabel ระบบสร้างจ่าหน้าอัจฉริยะ\n✅ ดึงชื่อที่อยู่จากแชทอัตโนมัติ\n✅ จำลูกค้าเก่า (CRM) ไม่ต้องพิมพ์ใหม่\n✅ โหลดไฟล์ Excel ทำบัญชีได้ทันที\n🎁 สมัครวันนี้ รับโควต้าจ่าหน้าฟรี 20 ใบ!\n👉 สมัครเลย: ${refLink}`;
+    const adText = `📦 จบปัญหาหลังบ้านร้านค้าออนไลน์ที่วุ่นวาย! ด้วย SmartLabel ระบบสร้างจ่าหน้าอัจฉริยะ\n✅ ดึงชื่อที่อยู่จากแชทอัตโนมัติ\n✅ จำลูกค้าเก่า (CRM) ไม่ต้องพิมพ์ใหม่\n✅ โหลดไฟล์ Excel ทำบัญชีได้ทันที\n🎁 สมัครวันนี้ รับโควต้าจ่าหน้าฟรี 50 ใบ!\n👉 สมัครเลย: ${refLink}`;
 
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans">
