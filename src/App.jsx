@@ -388,13 +388,13 @@ useEffect(() => {
         } else {
            const storeName = e.target.storeName.value;
            await setDoc(doc(db, "users", userCredential.user.uid), { 
-               email: formattedEmail, role: 'Owner', quota: 20, ownerId: userCredential.user.uid, 
+               email: formattedEmail, role: 'Owner', quota: 50, ownerId: userCredential.user.uid, 
                storeName: storeName, referredByCode: localStorage.getItem('smartlabel_ref') || '', 
                createdAt: serverTimestamp() 
            });
            const initialProfile = { name: storeName, phone: '', address: '' };
            setStoreProfile(initialProfile); localStorage.setItem('smartlabel_profile', JSON.stringify(initialProfile));
-           alert("🎉 สมัครสมาชิกสำเร็จ! รับโควต้าทดลองใช้ฟรี 20 จ่าหน้าครับ");
+           alert("🎉 สมัครสมาชิกสำเร็จ! รับโควต้าทดลองใช้ฟรี 50 จ่าหน้าครับ");
         }
       }
     } catch (error) { alert(authMode === 'login' ? "ข้อมูลเข้าสู่ระบบไม่ถูกต้องครับ" : "เกิดข้อผิดพลาด หรือไอดีนี้ถูกใช้งานแล้วครับ"); }
