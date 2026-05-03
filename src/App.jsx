@@ -154,6 +154,34 @@ export default function App() {
   const [allAffiliates, setAllAffiliates] = useState([]);
   const [allWithdrawals, setAllWithdrawals] = useState([]);
 
+  // 📥 1. State สำหรับเก็บแชท (ใช้ชื่อ incomingChats ให้ตรงกับโค้ด UI ของท่าน CEO)
+
+
+  // 🔄 2. ฟังก์ชันดึงแชทอัตโนมัติจาก Firebase
+  useEffect(() => {
+    if (!user) return; 
+
+    const q = query(
+      collection(db, "chats"),
+      where("ownerId", "==", user.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const chats = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // เรียงลำดับแชทใหม่สุดขึ้นก่อน
+      chats.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
+      
+      // 🎯 อัปเดตข้อมูลใส่ State ของท่าน CEO
+      setIncomingChats(chats);
+    });
+
+    return () => unsubscribe(); 
+  }, [user]);
+
   // ดึงข้อมูลตัวแทนและการถอนเงิน
   const loadAffiliateDataForAdmin = async () => {
     try {
