@@ -387,11 +387,17 @@ useEffect(() => {
            alert(`🎉 สมัครพาร์ทเนอร์สำเร็จ! รหัสแนะนำของคุณคือ: ${refCode}`);
         } else {
            const storeName = e.target.storeName.value;
-           await setDoc(doc(db, "users", userCredential.user.uid), { 
-               email: formattedEmail, role: 'Owner', quota: 50, ownerId: userCredential.user.uid, 
-               storeName: storeName, referredByCode: localStorage.getItem('smartlabel_ref') || '', 
-               createdAt: serverTimestamp() 
-           });
+            await setDoc(userRef, { 
+              email: currentUser.email, 
+              role: 'Owner',           
+              quota: 50,             
+              usedQuota: 0,          // 👈 เติมบรรทัดนี้!
+              plan: 'Free',          // 👈 เติมบรรทัดนี้!
+              storeName: '',         // (หรือถ้าโค้ดเดิมมีเก็บชื่อร้านก็ใช้ตัวเดิมครับ)
+              ownerId: currentUser.uid, 
+              referredByCode: refCode, // (รหัสพาร์ทเนอร์ โค้ดเดิมของท่าน CEO)
+              createdAt: serverTimestamp() 
+            });
            const initialProfile = { name: storeName, phone: '', address: '' };
            setStoreProfile(initialProfile); localStorage.setItem('smartlabel_profile', JSON.stringify(initialProfile));
            alert("🎉 สมัครสมาชิกสำเร็จ! รับโควต้าทดลองใช้ฟรี 50 จ่าหน้าครับ");
