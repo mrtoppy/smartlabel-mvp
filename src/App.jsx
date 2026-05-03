@@ -478,13 +478,33 @@ useEffect(() => {
     } catch (error) { console.error(error); }
   };
 
-  // 1. ฟังก์ชันสกัดที่อยู่ (อัปเกรดใหม่)
   const handleUseChat = async (chat) => {
-    // เอาข้อความไปใส่ในกล่องออเดอร์ (อันนี้สมมติว่าท่าน CEO มีระบบจัดการกล่องฝั่งขวาอยู่นะครับ)
-    // ตรงนี้ขึ้นอยู่กับว่าโค้ดเดิมท่าน CEO เอาข้อความไปใส่อย่างไร 
-    // ตัวอย่างเช่น: handleTextChange(orders[0].id, chat.message);
-    
-    // 🔥 สั่งเปลี่ยนสถานะใน Firebase ให้แชทนี้หายไปจาก Smart Inbox
+    let text = chat.message;
+
+    // --- 🧠 1. Smart Filter: คัดกรองข้อมูล ---
+    const hasNumbers = /\d{5,}/.test(text); 
+    const hasAddressKeywords = /(ต\.|อ\.|จ\.|ตำบล|อำเภอ|จังหวัด|หมู่|ม\.|ซอย|ถ\.)/.test(text);
+
+    if (!hasNumbers && !hasAddressKeywords) {
+      alert("ข้อความนี้ดูเหมือนจะเป็นแค่คำทักทาย หรือข้อมูลที่อยู่ไม่ครบถ้วนครับ 🕵️‍♂️");
+      return; 
+    }
+
+    let cleanedText = text
+      .replace(/สวัสดี(ครับ|ค่ะ)/g, "")
+      .replace(/สั่ง(ของ|สินค้า)(หน่อย)?(ครับ|ค่ะ)/g, "")
+      .replace(/สนใจ(ครับ|ค่ะ)/g, "")
+      .replace(/มีของ(ไหม|มั้ย)(ครับ|ค่ะ)/g, "")
+      .trim();
+
+    // --- 🚀 2. ส่งข้อมูลไปช่องตรงกลาง ---
+    if (orders && orders.length > 0) {
+      handleTextChange(orders[0].id, cleanedText); 
+    } else {
+      console.warn("ยังไม่มีกล่องออเดอร์เปิดอยู่ครับ");
+    }
+
+    // --- 🧹 3. ซ่อนข้อความแชทเดิม ---
     try {
       await updateDoc(doc(db, "chats", chat.id), { status: "processed" });
     } catch (error) {
