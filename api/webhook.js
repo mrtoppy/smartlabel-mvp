@@ -4,12 +4,12 @@ import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 
 // 🔥 1. เอา firebaseConfig จากหน้า App.jsx ของพาร์ทเนอร์มาวางตรงนี้เลยครับ
 const firebaseConfig = {
-  apiKey: "AIzaSyDqRCbpJthakk9JuDevn0EieDRLrVUqR10",
+  apiKey: "AIzaSyDqRCBpJthakk9JuDevn0EieDRLrVUqR10",
   authDomain: "smartlabel-90891.firebaseapp.com",
   projectId: "smartlabel-90891",
   storageBucket: "smartlabel-90891.firebasestorage.app",
-  messagingSenderId: "602671657416",
-  appId: "1:602671657416:web:15b5107268he704531fcfd",
+  messagingSenderId: "692671657416",
+  appId: "1:692671657416:web:15b5107260be704531fcfd",
   measurementId: "G-4YT0GXW1YM"
 };
 
