@@ -503,7 +503,7 @@ useEffect(() => {
     } else {
       console.warn("ยังไม่มีกล่องออเดอร์เปิดอยู่ครับ");
     }
-    
+
     // 2.1 หาดูว่ามีกล่องออเดอร์ไหนที่ "ยังว่างอยู่" (ยังไม่มีข้อความ) บ้างไหม?
     const emptyOrder = orders.find(order => !order.rawText || order.rawText.trim() === '');
 
@@ -537,14 +537,16 @@ useEffect(() => {
   };
 
   // 2. ฟังก์ชันใหม่: ซ่อนแชทขยะ (ไม่ใช่ที่อยู่)
+  // 🗑️ ฟังก์ชันสำหรับปุ่ม ❌ ซ่อนข้อความขยะ
   const handleDismissChat = async (chatId) => {
     try {
+      // เปลี่ยนสถานะในโกดัง Firebase เป็น "dismissed" (ถูกทิ้ง)
       await updateDoc(doc(db, "chats", chatId), { status: "dismissed" });
     } catch (error) {
       console.error("Error dismissing chat:", error);
+      alert("เกิดข้อผิดพลาดในการซ่อนข้อความครับ");
     }
   };
-
   const handleTextChange = (id, newText) => {
     let updatedOrders = orders.map(order => {
       if (order.id === id) {
