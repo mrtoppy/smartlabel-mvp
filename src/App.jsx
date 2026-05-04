@@ -5,7 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { auth, db } from './firebase'; 
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, getAuth } from "firebase/auth";
 import { initializeApp, getApps } from "firebase/app";
-import { collection, addDoc, getDocs, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, setDoc, where, updateDoc, increment, deleteDoc } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, setDoc, where, updateDoc, increment, deleteDoc, Timestamp } from "firebase/firestore";
 
 import generatePayload from 'promptpay-qr';
 
@@ -170,7 +170,7 @@ export default function App() {
       where("ownerId", "==", user.uid)
     );
 
-const unsubscribe = onSnapshot(q, (snapshot) => {
+  const unsubscribe = onSnapshot(q, (snapshot) => {
       const chats = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -221,6 +221,45 @@ const unsubscribe = onSnapshot(q, (snapshot) => {
 
     return () => unsubscribeChats();
   }, []);
+
+  // ========================================================
+  // 🛡️ ยามเฝ้าประตู: เช็ควันหมดอายุ Premium อัตโนมัติ
+  // ========================================================
+  useEffect(() => {
+    if (!user) return; 
+
+    const checkPremiumExpire = async () => {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          const now = new Date();
+
+          // ถ้าเป็น Premium และมีวันหมดอายุระบุไว้
+          if (userData.plan === "Premium" && userData.premiumExpireDate) {
+            const expireTime = userData.premiumExpireDate.toDate();
+
+            // เช็คว่า "เวลาปัจจุบัน" เลย "เวลาหมดอายุ" ไปหรือยัง?
+            if (now > expireTime) {
+              console.log("⚠️ หมดเวลา Premium! ระบบกำลังดาวน์เกรดเป็น Basic...");
+              
+              // 1. สั่ง Firebase ให้เปลี่ยน plan เป็น Basic
+              await updateDoc(userRef, { plan: "Basic" });
+              
+              // 2. อัปเดต State หน้าจอให้กระจกฝ้าเด้งขึ้นมาทันที (ใช้ชื่อ State ตามที่ท่าน CEO มี)
+              // ถ้าท่าน CEO ใช้คำสั่งดึง storeProfile แบบ Real-time ไว้แล้ว หน้าจอมันจะตัดฝ้าลงมาเองครับ!
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error checking premium status:", error);
+      }
+    };
+
+    checkPremiumExpire();
+  }, [user]);
 
   // 🔥 State สำหรับคู่มือการใช้งาน (Onboarding Tutorial)
   const [showTutorial, setShowTutorial] = useState(false);
@@ -713,15 +752,67 @@ const handleSaveProfile = async () => {
     };
   };
 
+  // นำเข้า Timestamp จาก firebase/firestore ด้วยนะครับ (ถ้ายังไม่มี)
+  // import { doc, getDoc, updateDoc, Timestamp } from "firebase/firestore";
+
   const handleSubmitTopup = async () => {
-    if (!slipImage) return alert("กรุณาแนบสลิปโอนเงิน เพื่อให้แอดมินตรวจสอบด้วยครับ 🧾");
+    if (!slipImage) return;
+    
+    // ตรงนี้สมมติว่าท่าน CEO มีระบบอัปโหลดรูป (handleImageUpload) ที่จัดการอัปโหลดสลิปไว้แล้ว
+    // เราจะข้ามมาขั้นตอนอัปเดตฐานข้อมูลเลยนะครับ
+    
+    setIsUploading(true);
     try {
-      await addDoc(collection(db, "topups"), { 
-        email: user.email, uid: user.uid, storeName: storeProfile.name, requestedQuota: selectedPackage, amount: selectedPackage === 100 ? 50 : 200, slipImage: slipImage, status: 'pending', createdAt: serverTimestamp() 
-      });
-      alert("✅ ส่งหลักฐานสำเร็จ! กรุณารอแอดมินอนุมัติครับ"); 
-      setIsTopupOpen(false); setSlipImage(null); 
-    } catch (error) { alert("เกิดข้อผิดพลาดในการส่งคำขอ"); }
+      let amount = 0;
+      let quotaToAdd = selectedPackage; // จะเป็น 100, 500, หรือ 10000
+
+      // กำหนดราคาตามแพ็กเกจ
+      if (selectedPackage === 100) amount = 50;
+      else if (selectedPackage === 500) amount = 200;
+      else if (selectedPackage === 10000) amount = 1000;
+
+      // ⚠️ ระวัง: ตรง currentUser.uid ให้เปลี่ยนเป็นตัวแปร User ID ที่ท่าน CEO ใช้อยู่นะครับ (เช่น user.uid)
+      const userRef = doc(db, "users", user.uid);
+      const userSnap = await getDoc(userRef);
+
+      if (userSnap.exists()) {
+        const userData = userSnap.data();
+        let newQuota = (userData.quota || 0) + quotaToAdd;
+        let newPlan = userData.plan || "Basic";
+        
+        let expireDate = userData.premiumExpireDate 
+          ? userData.premiumExpireDate.toDate() 
+          : new Date();
+        const now = new Date();
+
+        // 🟢 ถ้าเป็นแพ็กเกจ 1,000 บาท (Premium)
+        if (amount === 1000) {
+          newPlan = "Premium";
+          if (expireDate > now) {
+            expireDate.setDate(expireDate.getDate() + 30); // ทบวันเพิ่ม
+          } else {
+            expireDate = new Date(); 
+            expireDate.setDate(expireDate.getDate() + 30); // เริ่มนับใหม่
+          }
+        }
+
+        // สั่งอัปเดตลง Firebase ทันที
+        await updateDoc(userRef, {
+          quota: newQuota,
+          plan: newPlan,
+          premiumExpireDate: newPlan === "Premium" ? Timestamp.fromDate(expireDate) : (userData.premiumExpireDate || null)
+        });
+
+        alert("🎉 อัปเดตแพ็กเกจเรียบร้อยแล้ว!");
+        setIsTopupOpen(false); // ปิด Pop-up
+        setSlipImage(null); // เคลียร์รูปสลิป
+      }
+    } catch (error) {
+      console.error("Error updating top-up:", error);
+      alert("เกิดข้อผิดพลาดในการเติมแพ็กเกจครับ");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => {
@@ -732,8 +823,8 @@ const handleSaveProfile = async () => {
       // 2. เตรียมข้อมูลอัปเดตโควต้า และเช็คว่าต้องเลื่อนขั้นเป็น Premium ไหม
       let userUpdates = { quota: increment(requestedQuota) };
       
-      // 🔥 ถ้าลูกค้าซื้อแพ็กเกจ 5,000 ใบ (500 บาท) ให้เลื่อนขั้นเป็น Premium ทันที!
-      if (requestedQuota === 5000) {
+      // 🔥 ถ้าลูกค้าซื้อแพ็กเกจ 10,000 ใบ (1,000 บาท) ให้เลื่อนขั้นเป็น Premium ทันที!
+      if (requestedQuota === 10000) {
          userUpdates.plan = 'Premium'; 
       }
       // อัปเดตข้อมูลผู้ใช้ใน Firebase
@@ -752,7 +843,6 @@ const handleSaveProfile = async () => {
           await updateDoc(doc(db, "users", affDoc.id), {
             balance: increment(commission),
             totalEarned: increment(commission),
-            referredCount: increment(1) // แอบเพิ่มยอดสะสมร้านค้าให้ด้วย
           });
         }
       }
@@ -856,16 +946,16 @@ if (!user && !isAuthView) {
                 <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-3 rounded-xl border-2 border-blue-600 text-blue-600 font-bold hover:bg-blue-50">เลือกแพ็กเกจนี้</button>
               </div>
 
-              {/* 🔥 แพ็กเกจพรีเมียม 500 บาท (พระเอกของเรา) */}
+              {/* 🔥 แพ็กเกจพรีเมียม 1,000 บาท (พระเอกของเรา) */}
               <div className="bg-gradient-to-b from-indigo-50 to-white p-8 rounded-3xl shadow-2xl border-4 border-indigo-600 relative overflow-hidden card-hover transform md:-translate-y-4 flex flex-col justify-between">
                 <div className="absolute top-0 right-0 bg-indigo-600 text-white px-6 py-2 font-black text-sm rounded-bl-2xl shadow-sm tracking-widest">พรีเมียม 💎</div>
                 <div>
                   <p className="text-indigo-600 font-bold mb-4 tracking-widest uppercase text-sm">คุ้มค่าที่สุด</p>
                   <div className="flex items-end gap-1 mb-4">
-                    <p className="text-5xl font-black text-slate-800">฿500</p>
+                    <p className="text-5xl font-black text-slate-800">฿1,000</p>
                     {/*<p className="text-lg text-slate-500 font-bold mb-1">/เดือน</p>*/}
                   </div>
-                  <p className="text-slate-500 mb-6 font-medium">ได้รับ 5,000 จ่าหน้า <br/> <span className="text-sm">(คุ้มสุดๆ เพียง 0.10 บาท/ใบ)</span></p>
+                  <p className="text-slate-500 mb-6 font-medium">ได้รับ 10,000 จ่าหน้า 30 วัน(สะสมวันได้) <br/> <span className="text-sm">(คุ้มสุดๆ เพียง 0.10 บาท/ใบ)</span></p>
                   <ul className="text-sm text-indigo-900 mb-8 space-y-3 font-bold">
                     <li className="flex items-center gap-2">✨ ระบบดูดแชทเพจ Facebook</li>
                     <li className="flex items-center gap-2">⚡ AI สกัดที่อยู่อัตโนมัติ</li>
@@ -880,7 +970,7 @@ if (!user && !isAuthView) {
             
             {/* ป้ายประกาศสำหรับขาใหญ่ 
             <div className="mt-16 text-slate-500 font-medium bg-white p-6 rounded-2xl shadow-sm border border-slate-200 inline-block">
-              🚀 ส่งมากกว่า 5,000 ชิ้น/เดือน? เตรียมพบกับแพ็กเกจ <span className="font-black text-slate-800">Ultimate</span> เร็วๆ นี้! <button className="text-indigo-600 font-bold hover:underline ml-2">ติดต่อทีมงานเพื่อจองคิว</button>
+              🚀 ส่งมากกว่า 10,000 ชิ้น/เดือน? เตรียมพบกับแพ็กเกจ <span className="font-black text-slate-800">Ultimate</span> เร็วๆ นี้! <button className="text-indigo-600 font-bold hover:underline ml-2">ติดต่อทีมงานเพื่อจองคิว</button>
             </div>*/}
           </div>
         </section>
@@ -1177,7 +1267,6 @@ if (!user && !isAuthView) {
             </div>
 
             <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span> เลือกแพ็กเกจสุดคุ้ม</h3>
-            {/* 🔥 ปรับเป็น 3 คอลัมน์ เพื่อรองรับแพ็กเกจ Premium */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               {/* แพ็กเกจ 100 ใบ */}
               <div onClick={() => setSelectedPackage(100)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 100 ? 'border-slate-500 bg-slate-50 scale-[1.03] shadow-md shadow-slate-500/20' : 'border-gray-200 hover:border-slate-300 hover:bg-slate-50'}`}>
@@ -1193,11 +1282,12 @@ if (!user && !isAuthView) {
                 <p className="text-xs text-slate-500 mt-1 font-medium">200 บาท</p>
               </div>
 
-              {/* 💎 แพ็กเกจ Premium 5,000 ใบ */}
-              <div onClick={() => setSelectedPackage(5000)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 5000 ? 'border-indigo-500 bg-indigo-50 scale-[1.03] shadow-md shadow-indigo-500/20' : 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'}`}>
-                {selectedPackage === 5000 && <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">พรีเมียม 💎</div>}
-                <p className={`font-black text-xl ${selectedPackage === 5000 ? 'text-indigo-700' : 'text-slate-700'}`}>5,000 ใบ</p>
-                <p className="text-xs text-indigo-600 mt-1 font-black">+ ดูดแชท (500฿)</p>
+              {/* 💎 แพ็กเกจ Premium 10,000 ใบ */}
+              <div onClick={() => setSelectedPackage(10000)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 10000 ? 'border-indigo-500 bg-indigo-50 scale-[1.03] shadow-md shadow-indigo-500/20' : 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'}`}>
+                {selectedPackage === 10000 && <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">พรีเมียม 💎</div>}
+                <p className={`font-black text-xl ${selectedPackage === 10000 ? 'text-indigo-700' : 'text-slate-700'}`}>10,000 ใบ</p>
+                <p className="text-xs text-indigo-600 mt-1 font-black">+ ดูดแชท 30 วัน</p>
+                <p className="text-xs text-indigo-600 mt-1 font-black">1,000 บาท</p>
               </div>
             </div>
 
@@ -1206,17 +1296,18 @@ if (!user && !isAuthView) {
               <div className="bg-white p-3 rounded-xl shadow-sm mb-3 border border-slate-100">
                 {/* 🎯 สลับยอดเงิน QR Code ให้ตรงกับ 3 แพ็กเกจ */}
                 <QRCodeSVG 
-                  value={generatePayload("0874484448", { amount: selectedPackage === 100 ? 50 : selectedPackage === 500 ? 200 : 500 })} 
+                  value={generatePayload("0874484448", { amount: selectedPackage === 100 ? 50 : selectedPackage === 500 ? 200 : 1000 })} 
                   size={130} 
                 />
               </div>
               <p className="text-sm font-black text-slate-800">พร้อมเพย์: ท็อปปี้สมาร์ท โลจิสติกส์</p>
               <p className="text-lg font-black text-emerald-600 mt-1 bg-emerald-50 px-4 py-1 rounded-full border border-emerald-100">
                 {/* 🎯 สลับข้อความยอดชำระให้ตรงกัน */}
-                ยอดชำระ: ฿{selectedPackage === 100 ? '50.00' : selectedPackage === 500 ? '200.00' : '500.00'}
+                ยอดชำระ: ฿{selectedPackage === 100 ? '50.00' : selectedPackage === 500 ? '200.00' : '1,000.00'}
               </p>
             </div>
 
+            {/* ส่วนอัปโหลดสลิป ปล่อยไว้เหมือนเดิมครับ */}
             <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">3</span> แนบหลักฐานการโอนเงิน</h3>
             <div className="mb-8">
               {slipImage ? (
@@ -1445,7 +1536,7 @@ if (!user && !isAuthView) {
             {/* ======================================================== */}
             {/* 💎 โซนซ้าย: Inbox อัจฉริยะ (ดึงแชทอัตโนมัติ) */}
             {/* ======================================================== */}
-              <div className="lg:col-span-4 flex flex-col h-[75vh] print:hidden">
+            <div className="lg:col-span-4 flex flex-col h-[75vh] print:hidden">
                 <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-t-2xl p-4 text-white flex justify-between items-center shadow-lg">
                   <h3 className="font-bold text-lg flex items-center gap-2"><span className="text-2xl">🤖</span> Smart Inbox</h3>
                 
@@ -1466,9 +1557,13 @@ if (!user && !isAuthView) {
                     <p className="text-sm text-indigo-700 text-center px-6 mb-5 font-medium leading-relaxed">
                       ยกระดับร้านค้าของคุณ! ปลดล็อกระบบดูดแชทเพจ Facebook<br/>และให้ AI สกัดที่อยู่จัดส่งให้อัตโนมัติในคลิกเดียว
                     </p>
-                    <button onClick={() => alert('✨ สนใจอัปเกรดเป็นแพ็กเกจ Premium\nกรุณาติดต่อแอดมิน (Line: @SmartLabel) เพื่อปลดล็อกการใช้งานครับ!')} className="btn-cute bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-8 py-3 rounded-full font-bold shadow-lg shadow-indigo-500/40 flex items-center gap-2 hover:scale-105 transition-transform">
-                       ⭐ อัปเกรดแพ็กเกจเลย
-                    </button>
+                {/* เปลี่ยนจาก onClick={() => alert(...)} เป็น onClick={() => setIsTopupOpen(true)} */}
+                  <button 
+                    onClick={() => setIsTopupOpen(true)} 
+                    className="btn-cute bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-8 py-3 rounded-full font-bold shadow-lg shadow-indigo-500/40 flex items-center gap-2 hover:scale-105 transition-transform"
+                  >
+                    ⭐ อัปเกรดแพ็กเกจเลย
+                  </button>
                  </div>
                )}
                 {incomingChats.length === 0 ? (
