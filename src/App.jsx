@@ -154,6 +154,10 @@ export default function App() {
   const [allAffiliates, setAllAffiliates] = useState([]);
   const [allWithdrawals, setAllWithdrawals] = useState([]);
 
+  // 🕒 State สำหรับระบบประวัติแชท
+  const [allChats, setAllChats] = useState([]); // เก็บแชททั้งหมด
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false); // เปิด/ปิด Pop-up
+
   // 📥 1. State สำหรับเก็บแชท (ใช้ชื่อ incomingChats ให้ตรงกับโค้ด UI ของท่าน CEO)
 
 
@@ -166,19 +170,18 @@ export default function App() {
       where("ownerId", "==", user.uid)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+const unsubscribe = onSnapshot(q, (snapshot) => {
       const chats = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      }))
-
-      .filter(chat => chat.status === "new");
-
-      // เรียงลำดับแชทใหม่สุดขึ้นก่อน
+      }));
+      
+      // เรียงลำดับเวลาใหม่สุดขึ้นก่อน
       chats.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
       
-      // 🎯 อัปเดตข้อมูลใส่ State ของท่าน CEO
-      setIncomingChats(chats);
+      // 🔥 แบ่งตะกร้า: เก็บทั้งหมดไว้ที่นึง และโชว์เฉพาะอันใหม่ที่จอหลัก
+      setAllChats(chats); 
+      setIncomingChats(chats.filter(chat => chat.status === "new"));
     });
 
     return () => unsubscribe(); 
@@ -549,6 +552,18 @@ useEffect(() => {
       alert("เกิดข้อผิดพลาดในการซ่อนข้อความครับ");
     }
   };
+
+// ♻️ ฟังก์ชันกู้คืนแชทกลับไปหน้าหลัก
+  const handleRestoreChat = async (chatId) => {
+    try {
+      // แค่เปลี่ยนสถานะกลับเป็น new... แชทก็จะวิ่งกลับไปจอซ้ายทันที!
+      await updateDoc(doc(db, "chats", chatId), { status: "new" });
+      alert("ดึงข้อความกลับไปที่ Smart Inbox เรียบร้อยครับ! ✨");
+    } catch (error) {
+      console.error("Error restoring chat:", error);
+    }
+  };
+
   const handleTextChange = (id, newText) => {
     let updatedOrders = orders.map(order => {
       if (order.id === id) {
@@ -1430,10 +1445,17 @@ if (!user && !isAuthView) {
             {/* ======================================================== */}
             {/* 💎 โซนซ้าย: Inbox อัจฉริยะ (ดึงแชทอัตโนมัติ) */}
             {/* ======================================================== */}
-            <div className="lg:col-span-4 flex flex-col h-[75vh] print:hidden">
-              <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-t-2xl p-4 text-white flex justify-between items-center shadow-lg">
-                <h3 className="font-bold text-lg flex items-center gap-2"><span className="text-2xl">🤖</span> Smart Inbox</h3>
-                <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-sm shadow-sm border border-white/30">✨ Premium</span>
+              <div className="lg:col-span-4 flex flex-col h-[75vh] print:hidden">
+                <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-t-2xl p-4 text-white flex justify-between items-center shadow-lg">
+                  <h3 className="font-bold text-lg flex items-center gap-2"><span className="text-2xl">🤖</span> Smart Inbox</h3>
+                
+                {/* 🔥 เพิ่มปุ่ม "ประวัติ" เข้าไปตรงนี้ครับ */}
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setIsHistoryModalOpen(true)} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-sm transition-colors cursor-pointer flex items-center gap-1 shadow-sm border border-white/30">
+                    🕒 ประวัติ/ถังขยะ
+                  </button>
+                  <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-sm shadow-sm border border-white/30 hidden sm:inline-block">✨ Premium</span>
+                </div>
               </div>
               <div className="bg-white border-x border-b border-gray-200 rounded-b-2xl shadow-lg flex-1 p-4 overflow-y-auto relative">
                 {/* 🛑 กระจกฝ้าล็อคฟีเจอร์ Premium (จะโชว์ถ้าไม่ใช่ Premium) */}
@@ -1486,6 +1508,8 @@ if (!user && !isAuthView) {
               </div>
             </div>
 
+
+
             {/* ======================================================== */}
             {/* โซนขวา: ฟอร์มก๊อปวางเดิม และ พรีวิวพิมพ์ */}
             {/* ======================================================== */}
@@ -1500,6 +1524,70 @@ if (!user && !isAuthView) {
                       const hasWarnings = order.parsedData.warnings.length > 0;
                       boxColorClass = order.parsedData.isCOD ? (hasWarnings ? 'border-orange-400 bg-orange-50/50' : 'border-orange-500 bg-orange-50 ring-2 ring-orange-200') : (hasWarnings ? 'border-rose-400 bg-rose-50/50' : 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200');
                     }
+
+            {/* ======================================================== */}
+            {/* 🕒 หน้าต่าง Pop-up: ประวัติแชท & ถังขยะ */}
+            {/* ======================================================== */}
+            {isHistoryModalOpen && (
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex justify-center items-center p-4">
+                <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-fade-in-up">
+                  
+                  {/* หัว Pop-up */}
+                  <div className="bg-indigo-600 p-4 flex justify-between items-center text-white">
+                    <h2 className="text-lg font-bold flex items-center gap-2">🕒 ประวัติการสกัด & ถังขยะ</h2>
+                    <button onClick={() => setIsHistoryModalOpen(false)} className="hover:bg-white/20 p-2 rounded-full transition-colors leading-none">❌</button>
+                  </div>
+
+                  {/* ช่องค้นหา */}
+                  <div className="p-4 border-b border-gray-100 bg-gray-50/50">
+                    <input
+                      type="text"
+                      placeholder="🔍 ค้นหาจากชื่อ, เบอร์โทร, หรือข้อความ..."
+                      className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-shadow text-sm"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+
+                  {/* รายการแชท */}
+                  <div className="p-4 flex-1 overflow-y-auto space-y-3 bg-gray-50">
+                    {allChats
+                      .filter(c => c.status === "processed" || c.status === "dismissed")
+                      .filter(c => c.message.includes(searchQuery) || (c.senderId && c.senderId.includes(searchQuery)))
+                      .length === 0 ? (
+                        <div className="text-center text-gray-400 py-10 flex flex-col items-center">
+                          <span className="text-4xl mb-2">📭</span>
+                          <p>ไม่พบประวัติแชทที่ค้นหาครับ</p>
+                        </div>
+                      ) : (
+                        allChats
+                          .filter(c => c.status === "processed" || c.status === "dismissed")
+                          .filter(c => c.message.includes(searchQuery) || (c.senderId && c.senderId.includes(searchQuery)))
+                          .map(chat => (
+                            <div key={chat.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex justify-between items-start gap-4 hover:shadow-md transition-shadow">
+                              <div className="flex-1 overflow-hidden">
+                                <div className="flex gap-2 items-center mb-2">
+                                  <span className={`text-xs px-2 py-1 rounded-md font-bold ${chat.status === 'processed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                    {chat.status === 'processed' ? '✅ สกัดแล้ว' : '🗑️ ลบแล้ว'}
+                                  </span>
+                                  <span className="text-xs text-gray-400">{chat.timestamp ? new Date(chat.timestamp.toDate()).toLocaleString('th-TH') : ''}</span>
+                                </div>
+                                <p className="text-sm text-gray-700 whitespace-pre-line line-clamp-3">{chat.message}</p>
+                              </div>
+                              <button
+                                onClick={() => handleRestoreChat(chat.id)}
+                                className="bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white px-3 py-2 rounded-lg font-bold text-sm transition-colors shadow-sm whitespace-nowrap flex items-center gap-1"
+                              >
+                                <span>♻️</span> ดึงกลับ
+                              </button>
+                            </div>
+                          ))
+                      )}
+                  </div>
+                </div>
+              </div>
+            )}
+
                     return (
                       <div key={order.id} className="mb-6 p-5 rounded-2xl border border-gray-100 bg-slate-50/50 hover:bg-white transition-colors group">
                         <div className="flex justify-between items-center mb-3">
