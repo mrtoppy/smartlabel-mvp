@@ -503,6 +503,30 @@ useEffect(() => {
     } else {
       console.warn("ยังไม่มีกล่องออเดอร์เปิดอยู่ครับ");
     }
+    
+    // 2.1 หาดูว่ามีกล่องออเดอร์ไหนที่ "ยังว่างอยู่" (ยังไม่มีข้อความ) บ้างไหม?
+    const emptyOrder = orders.find(order => !order.rawText || order.rawText.trim() === '');
+
+    if (emptyOrder) {
+      // 2.2 ถ้าเจอกล่องว่าง ให้เอาที่อยู่ไปใส่กล่องนั้นเลย
+      handleTextChange(emptyOrder.id, cleanedText); 
+    } else {
+      // 2.3 แต่ถ้าทุกกล่องมีข้อมูลเต็มหมดแล้ว... ให้สร้างกล่องใหม่เพิ่มต่อท้ายเลย!
+      const newOrderId = Date.now(); // สร้าง ID ใหม่
+      const newOrder = { 
+        id: newOrderId, 
+        rawText: cleanedText, // เอาที่อยู่ใส่เข้าไปเลย
+        parsedData: null, 
+        isSaved: false, 
+        crmSuggestion: null 
+      };
+      
+      // อัปเดต State โดยเอาของเก่าทั้งหมดมากาง แล้วเอาของใหม่ต่อท้าย
+      setOrders(prevOrders => [...prevOrders, newOrder]);
+      
+      // *หมายเหตุ: ถ้าหน้าเว็บไม่ยอมดึงที่อยู่ไปสกัด (Parsed) อัตโนมัติ 
+      // ท่าน CEO อาจจะต้องเรียกใช้ extractOrderData(cleanedText) เพิ่มเติมตรงนี้นะครับ
+    }
 
     // --- 🧹 3. ซ่อนข้อความแชทเดิม ---
     try {
