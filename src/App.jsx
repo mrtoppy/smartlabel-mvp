@@ -170,8 +170,10 @@ export default function App() {
       const chats = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      }));
-      
+      }))
+
+      .filter(chat => chat.status === "new");
+
       // เรียงลำดับแชทใหม่สุดขึ้นก่อน
       chats.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
       
