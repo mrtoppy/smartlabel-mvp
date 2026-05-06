@@ -390,16 +390,34 @@ useEffect(() => {
     } catch (error) { console.error(error); }
   };
 
-  const loadBillingRequests = async () => {
+const loadBillingRequests = () => {
     try {
-      const q = query(collection(db, "topups"), where("status", "==", "pending"));
-      const querySnapshot = await getDocs(q);
-      const requests = [];
-      querySnapshot.forEach((doc) => { requests.push({ id: doc.id, data: doc.data() }); });
-      setBillingRequests(requests.sort((a, b) => (b.data.createdAt?.toMillis() || 0) - (a.data.createdAt?.toMillis() || 0)));
-    } catch (error) { console.error("Error loading bills:", error); }
-  };
+      // 🎯 เปลี่ยนชื่อคอลเลกชันให้ตรงกับที่แม่ค้าส่งมา (topup_requests)
+      const q = query(
+        collection(db, "topup_requests"), 
+        where("status", "==", "pending")
+      );
+      
+      // ✨ ใช้ onSnapshot เพื่อให้บิลใหม่เด้งเข้าหน้าจอ SuperAdmin ทันทีไม่ต้องกดรีเฟรช
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const requests = snapshot.docs.map(doc => ({
+          id: doc.id,
+          data: doc.data()
+        }));
+        
+        // เรียงลำดับตามเวลา (ใหม่สุดอยู่บน)
+        const sortedRequests = requests.sort((a, b) => 
+          (b.data.timestamp?.toMillis() || 0) - (a.data.timestamp?.toMillis() || 0)
+        );
+        
+        setBillingRequests(sortedRequests);
+      });
 
+      return unsubscribe;
+    } catch (error) { 
+      console.error("Error loading bills:", error); 
+    }
+  };
   const loadStaffData = async () => {
     try {
       const q = query(collection(db, "users"), where("ownerId", "==", user.uid));
@@ -423,6 +441,14 @@ useEffect(() => {
     } catch (error) { console.error("Error loading shops:", error); }
   };
 
+useEffect(() => {
+    if (userRole === 'SuperAdmin') {
+      const unsubscribe = loadBillingRequests(); // เรียกฟังก์ชันที่เราเพิ่งแก้
+      return () => unsubscribe && unsubscribe(); // ล้างข้อมูลเมื่อปิดหน้าจอ
+    }
+  }, [userRole]);
+  
+  
   useEffect(() => { 
     if (activeTab === 'dashboard') loadDashboardData(); 
     if (activeTab === 'billing' && userRole === 'SuperAdmin') loadBillingRequests();
@@ -755,24 +781,52 @@ const handleSaveProfile = async () => {
   // นำเข้า Timestamp จาก firebase/firestore ด้วยนะครับ (ถ้ายังไม่มี)
   // import { doc, getDoc, updateDoc, Timestamp } from "firebase/firestore";
 
+  // 🚀 ฟังก์ชันส่งคำขอเติมเงิน (แบบใหม่: ส่งบิลไปรออนุมัติ)
   const handleSubmitTopup = async () => {
     if (!slipImage) return;
-    
-    // ตรงนี้สมมติว่าท่าน CEO มีระบบอัปโหลดรูป (handleImageUpload) ที่จัดการอัปโหลดสลิปไว้แล้ว
-    // เราจะข้ามมาขั้นตอนอัปเดตฐานข้อมูลเลยนะครับ
     
     setIsUploading(true);
     try {
       let amount = 0;
-      let quotaToAdd = selectedPackage; // จะเป็น 100, 500, หรือ 10000
+      let quotaToAdd = selectedPackage;
 
-      // กำหนดราคาตามแพ็กเกจ
+      // 1. ตรวจสอบยอดเงินตามแพ็กเกจที่เลือก
       if (selectedPackage === 100) amount = 50;
       else if (selectedPackage === 500) amount = 200;
       else if (selectedPackage === 10000) amount = 1000;
 
-      // ⚠️ ระวัง: ตรง currentUser.uid ให้เปลี่ยนเป็นตัวแปร User ID ที่ท่าน CEO ใช้อยู่นะครับ (เช่น user.uid)
-      const userRef = doc(db, "users", user.uid);
+      // 2. สร้างใบคำขอ (Pending Request) ไปที่คอลเลกชัน topup_requests
+      // แทนที่จะอัปเดตโควต้าตัวเองทันที เราจะส่งใบสั่งซื้อไปให้แอดมินตรวจครับ
+      await addDoc(collection(db, "topup_requests"), {
+        userId: user.uid,
+        userEmail: user.email,
+        amount: amount,
+        package: selectedPackage,
+        slipImage: slipImage, // URL รูปสลิปที่อัปโหลดแล้ว
+        status: "pending",    // สถานะ: รอตรวจสอบ
+        timestamp: serverTimestamp(),
+        planRequested: amount === 1000 ? "Premium" : "Basic"
+      });
+
+      alert("🚀 ส่งหลักฐานการโอนเงินเรียบร้อยแล้ว! \nกรุณารอแอดมินตรวจสอบและอนุมัติโควต้าสักครู่นะครับ");
+      
+      // ปิดหน้าต่างและเคลียร์ค่า
+      setIsTopupOpen(false);
+      setSlipImage(null);
+      setSelectedPackage(100); 
+
+    } catch (error) {
+      console.error("Error submitting topup request:", error);
+      alert("เกิดข้อผิดพลาดในการส่งข้อมูลครับ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+const handleApproveTopup = async (requestId, targetUserId, quotaToAdd, amount) => {
+    try {
+      // 1. ดึงข้อมูลผู้ใช้ที่จะเติมเงินให้
+      const userRef = doc(db, "users", targetUserId);
       const userSnap = await getDoc(userRef);
 
       if (userSnap.exists()) {
@@ -780,82 +834,39 @@ const handleSaveProfile = async () => {
         let newQuota = (userData.quota || 0) + quotaToAdd;
         let newPlan = userData.plan || "Basic";
         
-        let expireDate = userData.premiumExpireDate 
-          ? userData.premiumExpireDate.toDate() 
-          : new Date();
+        let expireDate = userData.premiumExpireDate ? userData.premiumExpireDate.toDate() : new Date();
         const now = new Date();
 
-        // 🟢 ถ้าเป็นแพ็กเกจ 1,000 บาท (Premium)
+        // 🟢 ถ้าเป็นยอด 1,000 บาท ให้เปิด/ต่ออายุ Premium
         if (amount === 1000) {
           newPlan = "Premium";
           if (expireDate > now) {
-            expireDate.setDate(expireDate.getDate() + 30); // ทบวันเพิ่ม
+            expireDate.setDate(expireDate.getDate() + 30); // ทบวัน
           } else {
-            expireDate = new Date(); 
-            expireDate.setDate(expireDate.getDate() + 30); // เริ่มนับใหม่
+            expireDate = new Date();
+            expireDate.setDate(expireDate.getDate() + 30); // เริ่มใหม่
           }
         }
 
-        // สั่งอัปเดตลง Firebase ทันที
+        // 2. อัปเดตข้อมูลให้แม่ค้า (ผู้รับเงิน)
         await updateDoc(userRef, {
           quota: newQuota,
           plan: newPlan,
           premiumExpireDate: newPlan === "Premium" ? Timestamp.fromDate(expireDate) : (userData.premiumExpireDate || null)
         });
 
-        alert("🎉 อัปเดตแพ็กเกจเรียบร้อยแล้ว!");
-        setIsTopupOpen(false); // ปิด Pop-up
-        setSlipImage(null); // เคลียร์รูปสลิป
+        // 3. เปลี่ยนสถานะบิลเป็น Approved เพื่อให้หายไปจากหน้าจอตรวจสอบ
+        await updateDoc(doc(db, "topup_requests", requestId), {
+          status: "approved",
+          approvedAt: serverTimestamp(),
+          approvedBy: user.email
+        });
+
+        alert("✅ อนุมัติยอดเงินและเติมโควต้าเรียบร้อยแล้วครับ!");
       }
     } catch (error) {
-      console.error("Error updating top-up:", error);
-      alert("เกิดข้อผิดพลาดในการเติมแพ็กเกจครับ");
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleApproveTopup = async (requestId, userId, requestedQuota, amount) => {
-    try {
-      // 1. อัปเดตสถานะบิลว่าอนุมัติแล้ว (ใช้คอลเลกชัน topups ตามโค้ดเดิมของท่าน CEO)
-      await updateDoc(doc(db, "topups", requestId), { status: 'approved', approvedAt: serverTimestamp() });
-      
-      // 2. เตรียมข้อมูลอัปเดตโควต้า และเช็คว่าต้องเลื่อนขั้นเป็น Premium ไหม
-      let userUpdates = { quota: increment(requestedQuota) };
-      
-      // 🔥 ถ้าลูกค้าซื้อแพ็กเกจ 10,000 ใบ (1,000 บาท) ให้เลื่อนขั้นเป็น Premium ทันที!
-      if (requestedQuota === 10000) {
-         userUpdates.plan = 'Premium'; 
-      }
-      // อัปเดตข้อมูลผู้ใช้ใน Firebase
-      await updateDoc(doc(db, "users", userId), userUpdates);
-
-      // 3. 🤝 [Affiliate] คำนวณคอมมิชชัน 10% ให้คนแนะนำ! (โค้ดเดิมของท่าน CEO ไม่หายครับ)
-      const userSnap = await getDoc(doc(db, "users", userId));
-      if (userSnap.exists() && userSnap.data().referredByCode) {
-        const refCode = userSnap.data().referredByCode;
-        const affQuery = query(collection(db, "users"), where("role", "==", "Affiliate"), where("referralCode", "==", refCode));
-        const affSnap = await getDocs(affQuery);
-        
-        if (!affSnap.empty) {
-          const affDoc = affSnap.docs[0];
-          const commission = amount * 0.10; // หัก 10% ของยอดโอน
-          await updateDoc(doc(db, "users", affDoc.id), {
-            balance: increment(commission),
-            totalEarned: increment(commission),
-          });
-        }
-      }
-
-      // 4. รีเฟรชหน้าจอให้สวยงาม
-      if (userId === user?.uid) setQuota(prev => prev + requestedQuota);
-      loadBillingRequests(); 
-      loadAllShopsData(); 
-      
-      alert("✅ อนุมัติยอดเงิน เติมโควต้า และคำนวณคอมมิชชันให้พาร์ทเนอร์เรียบร้อยแล้ว!");
-    } catch (error) { 
       console.error("Error approving topup:", error);
-      alert("เกิดข้อผิดพลาดในการอนุมัติครับ"); 
+      alert("เกิดข้อผิดพลาดในการอนุมัติครับ");
     }
   };
 
@@ -1862,13 +1873,13 @@ if (!user && !isAuthView) {
               <div className="p-6 flex-1 flex flex-col justify-between">
                 <div>
                   <p className="font-black text-slate-800 text-lg">{req.data.storeName || 'ไม่มีชื่อร้าน'}</p>
-                  <p className="text-xs text-slate-500 mb-4 font-medium">{req.data.email}</p>
+                  <p className="text-xs text-slate-500 mb-4 font-medium">{req.data.userEmail}</p>
                   <div className="bg-slate-50 p-4 rounded-xl mb-6 flex justify-between border border-slate-100">
-                    <div><p className="text-xs text-slate-500 font-bold mb-1 uppercase tracking-widest">แพ็กเกจที่ขอ</p><p className="font-black text-blue-600 text-xl">{req.data.requestedQuota} <span className="text-sm">ใบ</span></p></div>
+                    <div><p className="text-xs text-slate-500 font-bold mb-1 uppercase tracking-widest">แพ็กเกจที่ขอ</p><p className="font-black text-blue-600 text-xl">{req.data.package} <span className="text-sm">ใบ</span></p></div>
                     <div className="text-right"><p className="text-xs text-slate-500 font-bold mb-1 uppercase tracking-widest">ยอดโอน</p><p className="font-black text-emerald-600 text-xl">฿{req.data.amount}</p></div>
                   </div>
                 </div>
-                <button onClick={() => handleApproveTopup(req.id, req.data.uid, req.data.requestedQuota, req.data.amount)} className="btn-cute w-full bg-emerald-500 text-white font-black py-4 rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 text-lg">✅ ยืนยันว่ายอดเงินเข้าแล้ว</button>
+                <button onClick={() => handleApproveTopup(req.id, req.data.userId, req.data.package, req.data.amount)} className="btn-cute w-full bg-emerald-500 text-white font-black py-4 rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 text-lg">✅ ยืนยันว่ายอดเงินเข้าแล้ว</button>
               </div>
             </div>
           ))}
