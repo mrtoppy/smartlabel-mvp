@@ -764,27 +764,63 @@ const handleAuth = async (e) => {
       }
     };
 
-  const handleSaveAndPrint = async () => {
+const handleSaveAndPrint = async () => {
+    // 1. กรองเอาเฉพาะออเดอร์ที่สมบูรณ์และยังไม่ได้เซฟ
     const readyToSaveOrders = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
-    if (userRole === 'Owner' && readyToSaveOrders.length > quota) { setIsTopupOpen(true); return; }
+    
+    if (userRole === 'Owner' && readyToSaveOrders.length > quota) { 
+        setIsTopupOpen(true); 
+        return; 
+    }
 
     if (readyToSaveOrders.length > 0) {
       try {
+        // 2. เซฟข้อมูลลงฐานข้อมูลทีละรายการ
         for (const order of readyToSaveOrders) {
           const codNumber = order.parsedData.isCOD ? Number(order.parsedData.codAmount.replace(/,/g, '')) : 0;
+          const staffName = user.email ? user.email.split('@')[0] : 'ไม่ระบุตัวตน';
+
           await addDoc(collection(db, "orders"), {
-            rawText: order.rawText, adminEmail: user.email, storeName: storeProfile.name, customerName: order.parsedData.customerName, phone: order.parsedData.phone, address: order.parsedData.address, zipcode: order.parsedData.zipcode, items: order.parsedData.items, isCOD: order.parsedData.isCOD, codAmount: codNumber, ownerId: userOwnerId, createdAt: serverTimestamp() 
+            rawText: order.rawText, 
+            adminEmail: user.email, 
+            creatorName: staffName, 
+            storeName: storeProfile.name || '', 
+            customerName: order.parsedData.customerName || 'ไม่ระบุชื่อลูกค้า', 
+            phone: order.parsedData.phone || '', 
+            address: order.parsedData.address || '', 
+            zipcode: order.parsedData.zipcode || '', 
+            items: order.parsedData.items || '', 
+            isCOD: order.parsedData.isCOD, 
+            codAmount: codNumber, 
+            ownerId: userOwnerId, 
+            createdAt: serverTimestamp() 
           });
         }
+
+        // 3. หักโควต้าของ Owner
         if (userRole === 'Owner') {
           const userRef = doc(db, "users", user.uid);
           await updateDoc(userRef, { quota: increment(-readyToSaveOrders.length), usedQuota: increment(readyToSaveOrders.length) });
           setQuota(prev => prev - readyToSaveOrders.length);
         }
-        setOrders(prev => prev.map(o => (o.parsedData && !o.isSaved && o.rawText.trim() !== '') ? { ...o, isSaved: true } : o));
-      } catch (error) { alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ"); }
+        
+      } catch (error) { 
+        console.error("Save Error:", error);
+        alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ"); 
+        return; // ถ้าเซฟพัง ให้หยุดทำงาน ไม่ต้องปรินต์ ไม่ต้องล้างหน้าจอ
+      }
     }
+
+    // 🖨️ 4. สั่งเบราว์เซอร์ให้เปิดหน้าต่างปรินต์
     window.print();
+
+    // 🧹 5. พิมพ์เสร็จแล้ว เคลียร์หน้าจอให้โล่งพร้อมรับงานใหม่!
+    // ล้างของเก่าออก แล้วสร้างกล่องเปล่า 1 ใบมารอรับลูกค้าคนต่อไป
+    setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
+    
+    // 💡 ทริคเสริม: ถ้าท่าน CEO มีตัวแปร state ที่ใช้เก็บค่าในช่องพิมพ์แชท (เช่น setInputText) 
+    // สามารถเอามาเรียกใช้ตรงนี้เพื่อล้างช่องพิมพ์แชทฝั่งซ้ายได้ด้วยครับ เช่น:
+    // setInputText(''); 
   };
 
   const handleEditHistory = (order) => { setOrders([{ id: Date.now(), rawText: order.rawText || '', parsedData: extractOrderData(order.rawText || ''), isSaved: false, crmSuggestion: null }, { id: Date.now() + 1, rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }]); setActiveTab('maker'); window.scrollTo(0, 0); };
@@ -1821,7 +1857,7 @@ const handleAuth = async (e) => {
             </div>
 
             {/* 2. กราฟสถิติ (Charts) */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
                {/* กราฟวงกลม */}
                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center card-hover">
                   <h3 className="text-lg font-black text-slate-700 w-full text-left mb-2">สัดส่วนประเภทการชำระ</h3>
@@ -1836,10 +1872,10 @@ const handleAuth = async (e) => {
                   </ResponsiveContainer>
                </div>
                
-               {/* กราฟแท่ง */}
+               {/* กราฟแท่ง (ยอดรายวัน) */}
                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 lg:col-span-2 card-hover">
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-black text-slate-700">สถิติการส่งพัสดุรายวัน <span className="text-sm font-medium text-slate-400 ml-2">(คลิกที่แท่งกราฟเพื่อดูรายละเอียด)</span></h3>
+                    <h3 className="text-lg font-black text-slate-700">สถิติการส่งพัสดุรายวัน <span className="text-sm font-medium text-slate-400 ml-2">(คลิกแท่งกราฟเพื่อดูรายละเอียด)</span></h3>
                     {selectedDate && <button onClick={() => setSelectedDate(null)} className="btn-cute text-xs bg-slate-100 text-slate-600 px-4 py-2 rounded-xl font-bold hover:bg-slate-200">❌ ดูทั้งหมด</button>}
                   </div>
                   <ResponsiveContainer width="100%" height={250}>
@@ -1854,6 +1890,24 @@ const handleAuth = async (e) => {
                      </BarChart>
                   </ResponsiveContainer>
                </div>
+            </div>
+
+            {/* 🔥 2.5 กราฟผลงานพนักงาน (Gamification) */}
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mb-6 card-hover">
+               <div className="flex justify-between items-center mb-4">
+                 <h3 className="text-lg font-black text-slate-700">🏆 Leaderboard ผลงานทีมงาน <span className="text-sm font-medium text-slate-400 ml-2">(ใครแพ็คเยอะสุด?)</span></h3>
+               </div>
+               <ResponsiveContainer width="100%" height={250}>
+                  {/* เปลี่ยนเป็นกราฟแนวนอน (layout="vertical") เพื่อให้อ่านชื่อพนักงานง่ายขึ้น */}
+                  <BarChart data={dashboardStats.staffData || []} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" />
+                     <XAxis type="number" hide />
+                     <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fontSize: 13, fill: '#475569', fontWeight: 'bold'}} />
+                     <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
+                     <Bar dataKey="ชิ้นงาน" fill="#6366f1" radius={[0, 8, 8, 0]} barSize={24} animationDuration={1500}>
+                     </Bar>
+                  </BarChart>
+               </ResponsiveContainer>
             </div>
 
             {/* 3. ตารางรายละเอียด (Data Table) */}
@@ -1875,26 +1929,31 @@ const handleAuth = async (e) => {
                      <tr>
                        <th className="py-4 px-6 whitespace-nowrap">วันที่ / เวลา</th>
                        <th className="py-4 px-6 whitespace-nowrap">หมายเลขสิ่งของ</th>
-                       <th className="py-4 px-6 whitespace-nowrap">ชื่อผู้รับ</th>
+                       <th className="py-4 px-6 whitespace-nowrap">ชื่อผู้รับ (ลูกค้า)</th>
                        <th className="py-4 px-6 min-w-[200px]">ที่อยู่จัดส่ง</th>
+                       <th className="py-4 px-6 whitespace-nowrap">คนทำรายการ</th>
                        <th className="py-4 px-6 text-right whitespace-nowrap">ยอดเก็บเงิน (COD)</th>
                      </tr>
                    </thead>
                    <tbody>
                      {filteredOrders.length === 0 ? (
-                        <tr><td colSpan="5" className="text-center py-16 text-slate-400 font-medium">ไม่พบข้อมูลที่ค้นหา หรือยังไม่มีออเดอร์ในวันนี้...</td></tr>
+                        <tr><td colSpan="6" className="text-center py-16 text-slate-400 font-medium">ไม่พบข้อมูลที่ค้นหา หรือยังไม่มีออเดอร์ในวันนี้...</td></tr>
                      ) : (
                         filteredOrders.map((order, idx) => (
                            <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
                               <td className="py-4 px-6 text-slate-500 whitespace-nowrap">{order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '-'}</td>
                               <td className="py-4 px-6 font-mono font-bold text-indigo-600 tracking-wider bg-indigo-50/30 whitespace-nowrap">REF-{order.id.slice(-6).toUpperCase()}</td>
                               <td className="py-4 px-6 whitespace-nowrap">
-                                 <p className="font-bold text-slate-800 text-base">{order.customerName}</p>
-                                 <p className="text-xs text-slate-500 mt-1 font-medium">☎ {order.phone}</p>
+                                 {/* โชว์ชื่อลูกค้า ถ้าไม่มีจะโชว์ว่า 'ไม่ระบุชื่อ' */}
+                                 <p className="font-bold text-slate-800 text-base">{order.customerName || 'ไม่ระบุชื่อ'}</p>
                               </td>
                               <td className="py-4 px-6">
                                  <p className="text-slate-600 line-clamp-2 text-xs leading-relaxed mb-1" title={order.address}>{order.address}</p>
                                  <span className="font-black text-slate-800 tracking-widest bg-slate-100 px-2 py-0.5 rounded text-xs">{order.zipcode}</span>
+                              </td>
+                              <td className="py-4 px-6 whitespace-nowrap text-xs font-bold text-slate-500">
+                                 {/* เพิ่มคอลัมน์คนทำรายการ เพื่อให้รู้ว่าออเดอร์นี้ใครเป็นคนกดบันทึก */}
+                                 👤 {order.creatorName || order.phone || 'Owner'}
                               </td>
                               <td className="py-4 px-6 text-right">
                                  {order.isCOD 
