@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 import { auth, db } from './firebase'; 
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, getAuth } from "firebase/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, getAuth, sendPasswordResetEmail } from "firebase/auth";
 import { initializeApp, getApps } from "firebase/app";
 import { collection, addDoc, getDocs, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, setDoc, where, updateDoc, increment, deleteDoc, Timestamp } from "firebase/firestore";
 
@@ -11,8 +11,9 @@ import generatePayload from 'promptpay-qr';
 
 import FacebookLoginRaw from 'react-facebook-login/dist/facebook-login-render-props';
 
-import { messaging } from './firebase'; // import ตัวที่เราเพิ่งสร้างเมื่อกี้
-import { getToken, onMessage } from "firebase/messaging";
+
+{/*import { messaging } from './firebase'; // import ตัวที่เราเพิ่งสร้างเมื่อกี้
+import { getToken, onMessage } from "firebase/messaging";*/}
 
 // ทะลวงกล่องที่ Vercel ห่อซ้อนกัน (เช็คทุกระดับชั้น)
 
@@ -270,7 +271,7 @@ export default function App() {
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
 
-// 📥 1. ฝ่ายทะเบียนประวัติ: ดึงข้อมูลผู้ใช้และข้อมูลร้านค้า (ฉบับแชร์ข้อมูลให้ลูกน้อง)
+  // 📥 1. ฝ่ายทะเบียนประวัติ: ดึงข้อมูลผู้ใช้และข้อมูลร้านค้า (ฉบับแชร์ข้อมูลให้ลูกน้อง)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
@@ -356,23 +357,23 @@ export default function App() {
     return () => unsubscribe();
   }, [authType]); // เฝ้าดู authType เผื่อมีการสลับหน้าสมัครพาร์ทเนอร์
 
-useEffect(() => {
-    const savedProfile = localStorage.getItem('smartlabel_profile');
-    if (savedProfile) setStoreProfile(JSON.parse(savedProfile));
+  useEffect(() => {
+      const savedProfile = localStorage.getItem('smartlabel_profile');
+      if (savedProfile) setStoreProfile(JSON.parse(savedProfile));
 
-    // 🔥 [Affiliate Step 1.1] ดักจับ Referral Code จาก URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const refCode = urlParams.get('ref');
-    
-    if (refCode) {
-      // แอบจดจำ Referral Code ไว้ในเครื่องลูกค้า
-      // บังคับแปลงเป็นพิมพ์ใหญ่ทั้งหมด เพื่อป้องกันปัญหาตอนคนพิมพ์ลิงก์ผิด
-      localStorage.setItem('smartlabel_ref', refCode.toUpperCase()); 
+      // 🔥 [Affiliate Step 1.1] ดักจับ Referral Code จาก URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const refCode = urlParams.get('ref');
       
-      // ทำความสะอาด URL ให้ดูเนียนตา
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, []);
+      if (refCode) {
+        // แอบจดจำ Referral Code ไว้ในเครื่องลูกค้า
+        // บังคับแปลงเป็นพิมพ์ใหญ่ทั้งหมด เพื่อป้องกันปัญหาตอนคนพิมพ์ลิงก์ผิด
+        localStorage.setItem('smartlabel_ref', refCode.toUpperCase()); 
+        
+        // ทำความสะอาด URL ให้ดูเนียนตา
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }, []);
 
   const loadDashboardData = async () => {
     if (!userOwnerId || userRole === 'SuperAdmin') return; 
@@ -402,34 +403,34 @@ useEffect(() => {
     } catch (error) { console.error(error); }
   };
 
-const loadBillingRequests = () => {
-    try {
-      // 🎯 เปลี่ยนชื่อคอลเลกชันให้ตรงกับที่แม่ค้าส่งมา (topup_requests)
-      const q = query(
-        collection(db, "topup_requests"), 
-        where("status", "==", "pending")
-      );
-      
-      // ✨ ใช้ onSnapshot เพื่อให้บิลใหม่เด้งเข้าหน้าจอ SuperAdmin ทันทีไม่ต้องกดรีเฟรช
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const requests = snapshot.docs.map(doc => ({
-          id: doc.id,
-          data: doc.data()
-        }));
-        
-        // เรียงลำดับตามเวลา (ใหม่สุดอยู่บน)
-        const sortedRequests = requests.sort((a, b) => 
-          (b.data.timestamp?.toMillis() || 0) - (a.data.timestamp?.toMillis() || 0)
+  const loadBillingRequests = () => {
+      try {
+        // 🎯 เปลี่ยนชื่อคอลเลกชันให้ตรงกับที่แม่ค้าส่งมา (topup_requests)
+        const q = query(
+          collection(db, "topup_requests"), 
+          where("status", "==", "pending")
         );
         
-        setBillingRequests(sortedRequests);
-      });
+        // ✨ ใช้ onSnapshot เพื่อให้บิลใหม่เด้งเข้าหน้าจอ SuperAdmin ทันทีไม่ต้องกดรีเฟรช
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const requests = snapshot.docs.map(doc => ({
+            id: doc.id,
+            data: doc.data()
+          }));
+          
+          // เรียงลำดับตามเวลา (ใหม่สุดอยู่บน)
+          const sortedRequests = requests.sort((a, b) => 
+            (b.data.timestamp?.toMillis() || 0) - (a.data.timestamp?.toMillis() || 0)
+          );
+          
+          setBillingRequests(sortedRequests);
+        });
 
-      return unsubscribe;
-    } catch (error) { 
-      console.error("Error loading bills:", error); 
-    }
-  };
+        return unsubscribe;
+      } catch (error) { 
+        console.error("Error loading bills:", error); 
+      }
+    };
   const loadStaffData = async () => {
     try {
       const q = query(collection(db, "users"), where("ownerId", "==", user.uid));
@@ -453,7 +454,7 @@ const loadBillingRequests = () => {
     } catch (error) { console.error("Error loading shops:", error); }
   };
 
-useEffect(() => {
+  useEffect(() => {
     if (userRole === 'SuperAdmin') {
       const unsubscribe = loadBillingRequests(); // เรียกฟังก์ชันที่เราเพิ่งแก้
       return () => unsubscribe && unsubscribe(); // ล้างข้อมูลเมื่อปิดหน้าจอ
@@ -461,7 +462,7 @@ useEffect(() => {
   }, [userRole]);
 
   // 🔔 ระบบขออนุญาตแจ้งเตือน (Web Push Notification)
-  useEffect(() => {
+  {/*useEffect(() => {
     const requestNotificationPermission = async () => {
       try {
         console.log("กำลังขออนุญาตส่งแจ้งเตือน...");
@@ -502,7 +503,7 @@ useEffect(() => {
     requestNotificationPermission();
 
     return () => unsubscribeMessage();
-  }, []);
+  }, []);*/}
   
   useEffect(() => { 
     if (activeTab === 'dashboard') loadDashboardData(); 
@@ -717,31 +718,31 @@ useEffect(() => {
       if (labelRefs.current[id]) { labelRefs.current[id].scrollIntoView({ behavior: 'smooth', block: 'center' }); }
   };
 
-const handleSaveProfile = async () => {
-    try {
-      if (!user) return;
-      
-      const userRef = doc(db, "users", user.uid);
-      
-      // 1. 💾 สั่งบันทึกลง Firebase (ดึงของจากตะกร้า tempProfile ไปเซฟ)
-      await setDoc(userRef, {
-        storeName: tempProfile.name,      // 👈 เปลี่ยนตรงนี้เป็น temp
-        phone: tempProfile.phone,         // 👈 เปลี่ยนตรงนี้เป็น temp
-        address: tempProfile.address,     // 👈 เปลี่ยนตรงนี้เป็น temp
-        connectedPages: selectedPages, 
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+  const handleSaveProfile = async () => {
+      try {
+        if (!user) return;
+        
+        const userRef = doc(db, "users", user.uid);
+        
+        // 1. 💾 สั่งบันทึกลง Firebase (ดึงของจากตะกร้า tempProfile ไปเซฟ)
+        await setDoc(userRef, {
+          storeName: tempProfile.name,      // 👈 เปลี่ยนตรงนี้เป็น temp
+          phone: tempProfile.phone,         // 👈 เปลี่ยนตรงนี้เป็น temp
+          address: tempProfile.address,     // 👈 เปลี่ยนตรงนี้เป็น temp
+          connectedPages: selectedPages, 
+          updatedAt: serverTimestamp()
+        }, { merge: true });
 
-      // 2. 🔄 อัปเดตตะกร้าหลัก (เพื่อให้หน้าเว็บด้านหลังเปลี่ยนชื่อ/เบอร์ทันทีโดยไม่ต้อง F5)
-      setStoreProfile(tempProfile);
+        // 2. 🔄 อัปเดตตะกร้าหลัก (เพื่อให้หน้าเว็บด้านหลังเปลี่ยนชื่อ/เบอร์ทันทีโดยไม่ต้อง F5)
+        setStoreProfile(tempProfile);
 
-      alert("บันทึกข้อมูลร้านค้าและตั้งค่าเพจสำเร็จเรียบร้อยครับ!");
-      setIsSettingsOpen(false); // ปิดหน้าต่าง
-    } catch (error) {
-      console.error("Error saving profile:", error);
-      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ");
-    }
-  };
+        alert("บันทึกข้อมูลร้านค้าและตั้งค่าเพจสำเร็จเรียบร้อยครับ!");
+        setIsSettingsOpen(false); // ปิดหน้าต่าง
+      } catch (error) {
+        console.error("Error saving profile:", error);
+        alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ");
+      }
+    };
 
   const handleSaveAndPrint = async () => {
     const readyToSaveOrders = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
@@ -878,52 +879,52 @@ const handleSaveProfile = async () => {
     }
   };
 
-const handleApproveTopup = async (requestId, targetUserId, quotaToAdd, amount) => {
-    try {
-      // 1. ดึงข้อมูลผู้ใช้ที่จะเติมเงินให้
-      const userRef = doc(db, "users", targetUserId);
-      const userSnap = await getDoc(userRef);
+  const handleApproveTopup = async (requestId, targetUserId, quotaToAdd, amount) => {
+      try {
+        // 1. ดึงข้อมูลผู้ใช้ที่จะเติมเงินให้
+        const userRef = doc(db, "users", targetUserId);
+        const userSnap = await getDoc(userRef);
 
-      if (userSnap.exists()) {
-        const userData = userSnap.data();
-        let newQuota = (userData.quota || 0) + quotaToAdd;
-        let newPlan = userData.plan || "Basic";
-        
-        let expireDate = userData.premiumExpireDate ? userData.premiumExpireDate.toDate() : new Date();
-        const now = new Date();
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          let newQuota = (userData.quota || 0) + quotaToAdd;
+          let newPlan = userData.plan || "Basic";
+          
+          let expireDate = userData.premiumExpireDate ? userData.premiumExpireDate.toDate() : new Date();
+          const now = new Date();
 
-        // 🟢 ถ้าเป็นยอด 1,000 บาท ให้เปิด/ต่ออายุ Premium
-        if (amount === 1000) {
-          newPlan = "Premium";
-          if (expireDate > now) {
-            expireDate.setDate(expireDate.getDate() + 30); // ทบวัน
-          } else {
-            expireDate = new Date();
-            expireDate.setDate(expireDate.getDate() + 30); // เริ่มใหม่
+          // 🟢 ถ้าเป็นยอด 1,000 บาท ให้เปิด/ต่ออายุ Premium
+          if (amount === 1000) {
+            newPlan = "Premium";
+            if (expireDate > now) {
+              expireDate.setDate(expireDate.getDate() + 30); // ทบวัน
+            } else {
+              expireDate = new Date();
+              expireDate.setDate(expireDate.getDate() + 30); // เริ่มใหม่
+            }
           }
+
+          // 2. อัปเดตข้อมูลให้แม่ค้า (ผู้รับเงิน)
+          await updateDoc(userRef, {
+            quota: newQuota,
+            plan: newPlan,
+            premiumExpireDate: newPlan === "Premium" ? Timestamp.fromDate(expireDate) : (userData.premiumExpireDate || null)
+          });
+
+          // 3. เปลี่ยนสถานะบิลเป็น Approved เพื่อให้หายไปจากหน้าจอตรวจสอบ
+          await updateDoc(doc(db, "topup_requests", requestId), {
+            status: "approved",
+            approvedAt: serverTimestamp(),
+            approvedBy: user.email
+          });
+
+          alert("✅ อนุมัติยอดเงินและเติมโควต้าเรียบร้อยแล้วครับ!");
         }
-
-        // 2. อัปเดตข้อมูลให้แม่ค้า (ผู้รับเงิน)
-        await updateDoc(userRef, {
-          quota: newQuota,
-          plan: newPlan,
-          premiumExpireDate: newPlan === "Premium" ? Timestamp.fromDate(expireDate) : (userData.premiumExpireDate || null)
-        });
-
-        // 3. เปลี่ยนสถานะบิลเป็น Approved เพื่อให้หายไปจากหน้าจอตรวจสอบ
-        await updateDoc(doc(db, "topup_requests", requestId), {
-          status: "approved",
-          approvedAt: serverTimestamp(),
-          approvedBy: user.email
-        });
-
-        alert("✅ อนุมัติยอดเงินและเติมโควต้าเรียบร้อยแล้วครับ!");
+      } catch (error) {
+        console.error("Error approving topup:", error);
+        alert("เกิดข้อผิดพลาดในการอนุมัติครับ");
       }
-    } catch (error) {
-      console.error("Error approving topup:", error);
-      alert("เกิดข้อผิดพลาดในการอนุมัติครับ");
-    }
-  };
+    };
 
   // 🔥 ฟังก์ชันกด "โอนเงินให้นักการตลาดแล้ว"
   const handleApproveWithdrawal = async (withdrawId) => {
@@ -936,118 +937,118 @@ const handleApproveTopup = async (requestId, targetUserId, quotaToAdd, amount) =
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 font-bold text-blue-600 animate-pulse">กำลังโหลดระบบ...</div>;
 
-if (!user && !isAuthView) {
-    return (
-      <div className="min-h-screen bg-white font-sans text-gray-900 selection:bg-blue-200">
-        <style>{`@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } } .animate-float { animation: float 3s ease-in-out infinite; } .btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); } .btn-cute:hover { transform: scale(1.05) translateY(-2px); box-shadow: 0 10px 20px -10px rgba(59, 130, 246, 0.5); } .card-hover { transition: transform 0.3s ease, box-shadow 0.3s ease; } .card-hover:hover { transform: translateY(-5px); box-shadow: 0 20px 30px -10px rgba(0,0,0,0.1); }`}</style>
-        
-        <nav className="flex justify-between items-center px-6 py-4 border-b">
-          <div className="text-2xl font-black text-blue-800 flex items-center gap-2"><span className="animate-float inline-block">📦</span> SmartLabel</div>
-          <div className="flex gap-4">
-            <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-indigo-500 font-bold hover:underline flex items-center gap-1 hidden md:flex"><span>🤝</span> ร่วมเป็นพาร์ทเนอร์</button>
-            <button onClick={() => setIsAuthView(true)} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-full font-bold">เข้าสู่ระบบ</button>
-          </div>
-        </nav>
-        
-        <header className="px-6 py-20 text-center bg-gradient-to-b from-blue-50 to-white">
-          <h1 className="text-5xl md:text-7xl font-black text-blue-900 mb-6 leading-tight hover:scale-[1.01] transition-transform">จ่าหน้าพัสดุไวขึ้น 10 เท่า <br/> <span className="text-blue-600">ด้วยสมองกลอัจฉริยะ</span></h1>
-          <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">สกัดชื่อที่อยู่จากแชทลูกค้าอัตโนมัติ พร้อมระบบจดจำลูกค้าเก่า (CRM) และสถิติครบวงจร เพื่อแม่ค้าออนไลน์มือโปรเช่นคุณ</p>
-          {/* เปลี่ยนเป็นแจกฟรี 50 ใบ ใจป้ำๆ ครับ */}
-          <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white text-xl px-12 py-4 rounded-full font-black shadow-xl animate-bounce mt-4">เริ่มทดลองใช้ฟรี 50 ใบ</button>
-        </header>
-        
-        <section className="py-20 px-6 max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12">
-          <div className="text-center group">
-            <div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-12 transition-transform duration-300 inline-block">🧠</div>
-            <h3 className="text-xl font-bold mb-2">Smart CRM</h3>
-            <p className="text-gray-500">พิมพ์แค่เบอร์โทร ข้อมูลชื่อและที่อยู่ลูกค้าเก่าเด้งขึ้นมาให้ทันที</p>
-          </div>
-          <div className="text-center group">
-            <div className="text-6xl mb-4 group-hover:scale-125 group-hover:-translate-y-2 transition-transform duration-300 inline-block">🖨️</div>
-            <h3 className="text-xl font-bold mb-2">Thermal Ready</h3>
-            <p className="text-gray-500">ออกแบบมาเพื่อเครื่องพิมพ์ความร้อน พิมพ์ออกมาสวยเป๊ะทุกใบ</p>
-          </div>
-          <div className="text-center group">
-            <div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-[-12deg] transition-transform duration-300 inline-block">📊</div>
-            <h3 className="text-xl font-bold mb-2">Dashboard & Export</h3>
-            <p className="text-gray-500">ดูยอดส่งรายวัน และดาวน์โหลดข้อมูลเป็น Excel ได้ในคลิกเดียว</p>
-          </div>
-        </section>
-        
-        <section className="py-24 bg-slate-50 border-t border-slate-100">
-          <div className="max-w-6xl mx-auto px-6 text-center">
-            <h2 className="text-4xl font-black mb-12 text-slate-800">ราคาแพ็กเกจที่คุณเลือกได้</h2>
-            {/* ปรับ Grid เป็น 3 คอลัมน์ สำหรับ 3 แพ็กเกจ */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
-              
-              {/* แพ็กเกจ 50 บาท */}
-              <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-200 card-hover flex flex-col justify-between">
-                <div>
-                  <p className="text-slate-500 font-bold mb-4 tracking-widest uppercase text-sm">เริ่มต้นเบาๆ</p>
-                  <p className="text-5xl font-black mb-4 text-slate-800">฿50</p>
-                  <p className="text-slate-500 mb-6 font-medium">ได้รับ 100 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.5 บาท/ใบ)</span></p>
-                  <ul className="text-sm text-slate-600 mb-8 space-y-3">
-                    <li className="flex items-center gap-2">✅ ใช้งานระบบจ่าหน้าปกติ</li>
-                    <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
-                    <li className="flex items-center gap-2 opacity-40">❌ ระบบดูดแชท Facebook</li>
-                    <li className="flex items-center gap-2 opacity-40">❌ AI สกัดที่อยู่อัตโนมัติ</li>
-                  </ul>
-                </div>
-                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-3 rounded-xl border-2 border-slate-300 text-slate-600 font-bold hover:bg-slate-50">เริ่มต้นใช้งาน</button>
-              </div>
-
-              {/* แพ็กเกจ 200 บาท */}
-              <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-200 card-hover flex flex-col justify-between">
-                <div>
-                  <p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">ขายดี</p>
-                  <p className="text-5xl font-black mb-4 text-slate-800">฿200</p>
-                  <p className="text-slate-500 mb-6 font-medium">ได้รับ 500 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.4 บาท/ใบ)</span></p>
-                  <ul className="text-sm text-slate-600 mb-8 space-y-3">
-                    <li className="flex items-center gap-2">✅ ใช้งานระบบจ่าหน้าปกติ</li>
-                    <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
-                    <li className="flex items-center gap-2 opacity-40">❌ ระบบดูดแชท Facebook</li>
-                    <li className="flex items-center gap-2 opacity-40">❌ AI สกัดที่อยู่อัตโนมัติ</li>
-                  </ul>
-                </div>
-                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-3 rounded-xl border-2 border-blue-600 text-blue-600 font-bold hover:bg-blue-50">เลือกแพ็กเกจนี้</button>
-              </div>
-
-              {/* 🔥 แพ็กเกจพรีเมียม 1,000 บาท (พระเอกของเรา) */}
-              <div className="bg-gradient-to-b from-indigo-50 to-white p-8 rounded-3xl shadow-2xl border-4 border-indigo-600 relative overflow-hidden card-hover transform md:-translate-y-4 flex flex-col justify-between">
-                <div className="absolute top-0 right-0 bg-indigo-600 text-white px-6 py-2 font-black text-sm rounded-bl-2xl shadow-sm tracking-widest">พรีเมียม 💎</div>
-                <div>
-                  <p className="text-indigo-600 font-bold mb-4 tracking-widest uppercase text-sm">คุ้มค่าที่สุด</p>
-                  <div className="flex items-end gap-1 mb-4">
-                    <p className="text-5xl font-black text-slate-800">฿1,000</p>
-                    {/*<p className="text-lg text-slate-500 font-bold mb-1">/เดือน</p>*/}
-                  </div>
-                  <p className="text-slate-500 mb-6 font-medium">ได้รับ 10,000 จ่าหน้า 30 วัน(สะสมวันได้) <br/> <span className="text-sm">(คุ้มสุดๆ เพียง 0.10 บาท/ใบ)</span></p>
-                  <ul className="text-sm text-indigo-900 mb-8 space-y-3 font-bold">
-                    <li className="flex items-center gap-2">✨ ระบบดูดแชทเพจ Facebook</li>
-                    <li className="flex items-center gap-2">⚡ AI สกัดที่อยู่อัตโนมัติ</li>
-                    <li className="flex items-center gap-2">✅ ใช้งานระบบจ่าหน้าปกติ</li>
-                    <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
-                  </ul>
-                </div>
-                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-xl bg-indigo-600 text-white font-black shadow-lg shadow-indigo-500/40">อัปเกรดเป็น Premium</button>
-              </div>
-
+  if (!user && !isAuthView) {
+      return (
+        <div className="min-h-screen bg-white font-sans text-gray-900 selection:bg-blue-200">
+          <style>{`@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } } .animate-float { animation: float 3s ease-in-out infinite; } .btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); } .btn-cute:hover { transform: scale(1.05) translateY(-2px); box-shadow: 0 10px 20px -10px rgba(59, 130, 246, 0.5); } .card-hover { transition: transform 0.3s ease, box-shadow 0.3s ease; } .card-hover:hover { transform: translateY(-5px); box-shadow: 0 20px 30px -10px rgba(0,0,0,0.1); }`}</style>
+          
+          <nav className="flex justify-between items-center px-6 py-4 border-b">
+            <div className="text-2xl font-black text-blue-800 flex items-center gap-2"><span className="animate-float inline-block">📦</span> SmartLabel</div>
+            <div className="flex gap-4">
+              <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-indigo-500 font-bold hover:underline flex items-center gap-1 hidden md:flex"><span>🤝</span> ร่วมเป็นพาร์ทเนอร์</button>
+              <button onClick={() => setIsAuthView(true)} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-full font-bold">เข้าสู่ระบบ</button>
             </div>
-            
-            {/* ป้ายประกาศสำหรับขาใหญ่ 
-            <div className="mt-16 text-slate-500 font-medium bg-white p-6 rounded-2xl shadow-sm border border-slate-200 inline-block">
-              🚀 ส่งมากกว่า 10,000 ชิ้น/เดือน? เตรียมพบกับแพ็กเกจ <span className="font-black text-slate-800">Ultimate</span> เร็วๆ นี้! <button className="text-indigo-600 font-bold hover:underline ml-2">ติดต่อทีมงานเพื่อจองคิว</button>
-            </div>*/}
-          </div>
-        </section>
-        
-        <footer className="py-12 bg-white border-t border-slate-100 flex flex-col items-center gap-4 text-slate-400 text-sm font-medium">
-          <p>© 2026 ToppySmart Logistics. พัฒนาโดยพาร์ทเนอร์ & CTO Copilot</p>
-          <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-indigo-500 font-bold hover:underline flex items-center gap-1">🤝 ระบบจัดการรายได้สำหรับนักการตลาด (Partner Login)</button>
-        </footer>
-      </div>
-    );
-  }
+          </nav>
+          
+          <header className="px-6 py-20 text-center bg-gradient-to-b from-blue-50 to-white">
+            <h1 className="text-5xl md:text-7xl font-black text-blue-900 mb-6 leading-tight hover:scale-[1.01] transition-transform">จ่าหน้าพัสดุไวขึ้น 10 เท่า <br/> <span className="text-blue-600">ด้วยสมองกลอัจฉริยะ</span></h1>
+            <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">สกัดชื่อที่อยู่จากแชทลูกค้าอัตโนมัติ พร้อมระบบจดจำลูกค้าเก่า (CRM) และสถิติครบวงจร เพื่อแม่ค้าออนไลน์มือโปรเช่นคุณ</p>
+            {/* เปลี่ยนเป็นแจกฟรี 50 ใบ ใจป้ำๆ ครับ */}
+            <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white text-xl px-12 py-4 rounded-full font-black shadow-xl animate-bounce mt-4">เริ่มทดลองใช้ฟรี 50 ใบ</button>
+          </header>
+          
+          <section className="py-20 px-6 max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12">
+            <div className="text-center group">
+              <div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-12 transition-transform duration-300 inline-block">🧠</div>
+              <h3 className="text-xl font-bold mb-2">Smart CRM</h3>
+              <p className="text-gray-500">พิมพ์แค่เบอร์โทร ข้อมูลชื่อและที่อยู่ลูกค้าเก่าเด้งขึ้นมาให้ทันที</p>
+            </div>
+            <div className="text-center group">
+              <div className="text-6xl mb-4 group-hover:scale-125 group-hover:-translate-y-2 transition-transform duration-300 inline-block">🖨️</div>
+              <h3 className="text-xl font-bold mb-2">Thermal Ready</h3>
+              <p className="text-gray-500">ออกแบบมาเพื่อเครื่องพิมพ์ความร้อน พิมพ์ออกมาสวยเป๊ะทุกใบ</p>
+            </div>
+            <div className="text-center group">
+              <div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-[-12deg] transition-transform duration-300 inline-block">📊</div>
+              <h3 className="text-xl font-bold mb-2">Dashboard & Export</h3>
+              <p className="text-gray-500">ดูยอดส่งรายวัน และดาวน์โหลดข้อมูลเป็น Excel ได้ในคลิกเดียว</p>
+            </div>
+          </section>
+          
+          <section className="py-24 bg-slate-50 border-t border-slate-100">
+            <div className="max-w-6xl mx-auto px-6 text-center">
+              <h2 className="text-4xl font-black mb-12 text-slate-800">ราคาแพ็กเกจที่คุณเลือกได้</h2>
+              {/* ปรับ Grid เป็น 3 คอลัมน์ สำหรับ 3 แพ็กเกจ */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
+                
+                {/* แพ็กเกจ 50 บาท */}
+                <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-200 card-hover flex flex-col justify-between">
+                  <div>
+                    <p className="text-slate-500 font-bold mb-4 tracking-widest uppercase text-sm">เริ่มต้นเบาๆ</p>
+                    <p className="text-5xl font-black mb-4 text-slate-800">฿50</p>
+                    <p className="text-slate-500 mb-6 font-medium">ได้รับ 100 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.5 บาท/ใบ)</span></p>
+                    <ul className="text-sm text-slate-600 mb-8 space-y-3">
+                      <li className="flex items-center gap-2">✅ ใช้งานระบบจ่าหน้าปกติ</li>
+                      <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
+                      <li className="flex items-center gap-2 opacity-40">❌ ระบบดูดแชท Facebook</li>
+                      <li className="flex items-center gap-2 opacity-40">❌ AI สกัดที่อยู่อัตโนมัติ</li>
+                    </ul>
+                  </div>
+                  <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-3 rounded-xl border-2 border-slate-300 text-slate-600 font-bold hover:bg-slate-50">เริ่มต้นใช้งาน</button>
+                </div>
+
+                {/* แพ็กเกจ 200 บาท */}
+                <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-200 card-hover flex flex-col justify-between">
+                  <div>
+                    <p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">ขายดี</p>
+                    <p className="text-5xl font-black mb-4 text-slate-800">฿200</p>
+                    <p className="text-slate-500 mb-6 font-medium">ได้รับ 500 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.4 บาท/ใบ)</span></p>
+                    <ul className="text-sm text-slate-600 mb-8 space-y-3">
+                      <li className="flex items-center gap-2">✅ ใช้งานระบบจ่าหน้าปกติ</li>
+                      <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
+                      <li className="flex items-center gap-2 opacity-40">❌ ระบบดูดแชท Facebook</li>
+                      <li className="flex items-center gap-2 opacity-40">❌ AI สกัดที่อยู่อัตโนมัติ</li>
+                    </ul>
+                  </div>
+                  <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-3 rounded-xl border-2 border-blue-600 text-blue-600 font-bold hover:bg-blue-50">เลือกแพ็กเกจนี้</button>
+                </div>
+
+                {/* 🔥 แพ็กเกจพรีเมียม 1,000 บาท (พระเอกของเรา) */}
+                <div className="bg-gradient-to-b from-indigo-50 to-white p-8 rounded-3xl shadow-2xl border-4 border-indigo-600 relative overflow-hidden card-hover transform md:-translate-y-4 flex flex-col justify-between">
+                  <div className="absolute top-0 right-0 bg-indigo-600 text-white px-6 py-2 font-black text-sm rounded-bl-2xl shadow-sm tracking-widest">พรีเมียม 💎</div>
+                  <div>
+                    <p className="text-indigo-600 font-bold mb-4 tracking-widest uppercase text-sm">คุ้มค่าที่สุด</p>
+                    <div className="flex items-end gap-1 mb-4">
+                      <p className="text-5xl font-black text-slate-800">฿1,000</p>
+                      {/*<p className="text-lg text-slate-500 font-bold mb-1">/เดือน</p>*/}
+                    </div>
+                    <p className="text-slate-500 mb-6 font-medium">ได้รับ 10,000 จ่าหน้า 30 วัน(สะสมวันได้) <br/> <span className="text-sm">(คุ้มสุดๆ เพียง 0.10 บาท/ใบ)</span></p>
+                    <ul className="text-sm text-indigo-900 mb-8 space-y-3 font-bold">
+                      <li className="flex items-center gap-2">✨ ระบบดูดแชทเพจ Facebook</li>
+                      <li className="flex items-center gap-2">⚡ AI สกัดที่อยู่อัตโนมัติ</li>
+                      <li className="flex items-center gap-2">✅ ใช้งานระบบจ่าหน้าปกติ</li>
+                      <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
+                    </ul>
+                  </div>
+                  <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-xl bg-indigo-600 text-white font-black shadow-lg shadow-indigo-500/40">อัปเกรดเป็น Premium</button>
+                </div>
+
+              </div>
+              
+              {/* ป้ายประกาศสำหรับขาใหญ่ 
+              <div className="mt-16 text-slate-500 font-medium bg-white p-6 rounded-2xl shadow-sm border border-slate-200 inline-block">
+                🚀 ส่งมากกว่า 10,000 ชิ้น/เดือน? เตรียมพบกับแพ็กเกจ <span className="font-black text-slate-800">Ultimate</span> เร็วๆ นี้! <button className="text-indigo-600 font-bold hover:underline ml-2">ติดต่อทีมงานเพื่อจองคิว</button>
+              </div>*/}
+            </div>
+          </section>
+          
+          <footer className="py-12 bg-white border-t border-slate-100 flex flex-col items-center gap-4 text-slate-400 text-sm font-medium">
+            <p>© 2026 ToppySmart Logistics. พัฒนาโดยพาร์ทเนอร์ & CTO Copilot</p>
+            <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-indigo-500 font-bold hover:underline flex items-center gap-1">🤝 ระบบจัดการรายได้สำหรับนักการตลาด (Partner Login)</button>
+          </footer>
+        </div>
+      );
+    }
 
   if (!user && isAuthView) {
     return (
@@ -1067,7 +1068,34 @@ if (!user && !isAuthView) {
             {authMode === 'register' && authType === 'merchant' && (<div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">ชื่อร้านค้าของคุณ</label><input name="storeName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none bg-gray-50 transition-all" placeholder="เช่น ToppySmart Shop" /></div>)}
             {authMode === 'register' && authType === 'partner' && (<div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">ชื่อ-นามสกุล (พาร์ทเนอร์)</label><input name="partnerName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-indigo-200 outline-none bg-gray-50 transition-all" placeholder="เช่น นิชาภา สอนชา" /></div>)}
             <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">{authType === 'partner' ? 'เบอร์โทรศัพท์ (ID)' : (authMode === 'login' ? 'อีเมล หรือ เบอร์โทรศัพท์' : 'อีเมลของคุณ')}</label><input name="email" type="text" required className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`} placeholder={authType === 'partner' ? "089xxxxxxx" : (authMode === 'login' ? "เบอร์โทรศัพท์ หรือ อีเมล" : "owner@mail.com")} /></div>
-            <div className="mb-6"><label className="block text-sm font-bold text-gray-700 mb-1">รหัสผ่าน</label><input name="password" type="password" required className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`} placeholder="••••••••" /></div>
+            <div className="mb-6">
+            <div className="flex justify-between items-center mb-1">
+              <label className="block text-sm font-bold text-gray-700">รหัสผ่าน</label>
+              {/* 🔥 ปุ่มลืมรหัสผ่าน (โชว์เฉพาะหน้าล็อกอิน) */}
+              {authMode === 'login' && (
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    // ดึงค่าอีเมลจากฟอร์มสดๆ มาใช้
+                    const emailInput = document.querySelector('input[name="email"]');
+                    if (!emailInput || !emailInput.value) {
+                      alert("⚠️ กรุณากรอกอีเมลของคุณในช่องด้านบน แล้วคลิก 'ลืมรหัสผ่าน' อีกครั้งครับ");
+                      return;
+                    }
+                    import("firebase/auth").then(({ sendPasswordResetEmail }) => {
+                      sendPasswordResetEmail(auth, emailInput.value)
+                        .then(() => alert(`✅ ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่: ${emailInput.value} แล้วครับ!`))
+                        .catch(() => alert("❌ ไม่พบอีเมลนี้ในระบบ หรือกรอกรูปแบบผิดครับ"));
+                    });
+                  }} 
+                  className={`text-xs font-bold hover:underline ${authType === 'partner' ? 'text-indigo-500' : 'text-blue-500'}`}
+                >
+                  ลืมรหัสผ่าน?
+                </button>
+              )}
+            </div>
+            <input name="password" type="password" required className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`} placeholder="••••••••" />
+          </div>
             <button type="submit" className={`btn-cute w-full text-white font-bold py-3 rounded-xl shadow-lg ${authType === 'partner' ? 'bg-indigo-600 hover:shadow-indigo-500/50' : 'bg-blue-600 hover:shadow-blue-500/50'}`}>{authMode === 'login' ? 'เข้าสู่ระบบ' : '✨ สมัครสมาชิกฟรี'}</button>
           </form>
           <div className="mt-6 text-center border-t pt-4">
@@ -1406,7 +1434,7 @@ if (!user && !isAuthView) {
       {/* Header Panel */}
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 print:hidden">
-          <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md animate-[fadeIn_0.3s_ease-out]">
+          <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md animate-[fadeIn_0.3s_ease-out]" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
             <h2 className="text-2xl font-bold mb-6 text-gray-800">⚙️ ตั้งค่าข้อมูลร้านค้า</h2>
             <div className="mb-4">
               <label className="block text-sm font-bold text-gray-700 mb-2">ชื่อร้านค้า (ผู้ส่ง)</label>
