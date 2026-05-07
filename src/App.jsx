@@ -10,7 +10,12 @@ import { collection, addDoc, getDocs, query, orderBy, onSnapshot, serverTimestam
 import generatePayload from 'promptpay-qr';
 
 import FacebookLoginRaw from 'react-facebook-login/dist/facebook-login-render-props';
+
+import { messaging } from './firebase'; // import ตัวที่เราเพิ่งสร้างเมื่อกี้
+import { getToken, onMessage } from "firebase/messaging";
+
 // ทะลวงกล่องที่ Vercel ห่อซ้อนกัน (เช็คทุกระดับชั้น)
+
 const FacebookLogin = FacebookLoginRaw.default?.default || FacebookLoginRaw.default || FacebookLoginRaw;
 
 // 🔥 สมองกล Advanced Parser ตัวเทพ
@@ -454,7 +459,50 @@ useEffect(() => {
       return () => unsubscribe && unsubscribe(); // ล้างข้อมูลเมื่อปิดหน้าจอ
     }
   }, [userRole]);
-  
+
+  // 🔔 ระบบขออนุญาตแจ้งเตือน (Web Push Notification)
+  useEffect(() => {
+    const requestNotificationPermission = async () => {
+      try {
+        console.log("กำลังขออนุญาตส่งแจ้งเตือน...");
+        const permission = await Notification.requestPermission();
+        
+        if (permission === 'granted') {
+          console.log("✅ ผู้ใช้อนุญาตให้ส่งแจ้งเตือนแล้ว!");
+
+          // 🛠️ 1. จูงมือระบบไปลงทะเบียนบุรุษไปรษณีย์ด้วยตัวเอง
+          const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+          
+          // 🛠️ 2. ขอรับ Token (ใส่ registration พ่วงเข้าไปด้วย)
+          const currentToken = await getToken(messaging, { 
+            vapidKey: "BGfgMAh9aIGcLHy4sZbjmJw4mTfkLIutjfljsCR8avKDJNCTGhN7Om5z4mGhNHmd5dQQgw5ionip5irvzU6xZKk", // เช็คให้ชัวร์ว่าไม่มีเว้นวรรคข้างหน้าหรือข้างหลังรหัสเท่านี้นะครับ
+            serviceWorkerRegistration: registration // 👈 เพิ่มบรรทัดนี้เข้ามาครับ!
+          });
+
+          if (currentToken) {
+            console.log("🔑 Token ของเครื่องนี้คือ:", currentToken);
+          } else {
+            console.log("ไม่มี Token กลับมา ให้ตรวจสอบ VAPID Key ครับ");
+          }   
+        } else {
+          console.log("❌ ผู้ใช้ไม่อนุญาตให้ส่งแจ้งเตือน");
+        }
+      } catch (error) {
+        console.error("เกิดข้อผิดพลาดในการขอสิทธิ์แจ้งเตือน:", error);
+      }
+    };
+
+    // ดักฟังข้อความแจ้งเตือน กรณีที่แม่ค้ากำลังเปิดหน้าเว็บเราทิ้งไว้อยู่ (Foreground)
+    const unsubscribeMessage = onMessage(messaging, (payload) => {
+      console.log("🔔 มีข้อความเข้าขณะเปิดแอป:", payload);
+      // ตรงนี้เราสามารถสั่งให้เด้ง Toast แจ้งเตือนมุมจอสวยๆ ได้ครับ
+      alert(`มีแจ้งเตือนใหม่: ${payload.notification.title}`); 
+    });
+
+    requestNotificationPermission();
+
+    return () => unsubscribeMessage();
+  }, []);
   
   useEffect(() => { 
     if (activeTab === 'dashboard') loadDashboardData(); 
