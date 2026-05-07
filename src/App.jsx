@@ -265,6 +265,7 @@ export default function App() {
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
 
+// 📥 1. ฝ่ายทะเบียนประวัติ: ดึงข้อมูลผู้ใช้และข้อมูลร้านค้า (ฉบับแชร์ข้อมูลให้ลูกน้อง)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
@@ -272,78 +273,83 @@ export default function App() {
         try {
           const userRef = doc(db, "users", currentUser.uid);
           const userSnap = await getDoc(userRef);
-            if (userSnap.exists()) {
-            const data = userSnap.data();
-            if (data.role === 'Affiliate') {
-               setAffiliateData(data);
-               // โหลดประวัติการแจ้งถอนเงินของ Partner คนนี้
-               const qW = query(collection(db, "withdrawals"), where("affiliateId", "==", currentUser.uid));
-               getDocs(qW).then(snap => {
-                 const wList = []; snap.forEach(d => wList.push({id: d.id, ...d.data()}));
-                 setWithdrawalHistory(wList.sort((a,b) => b.createdAt?.toMillis() - a.createdAt?.toMillis()));
-               });
-            }
-            setUserRole(data.role); setQuota(data.quota || 0); setUserOwnerId(data.ownerId || currentUser.uid);
-            if(data.role === 'SuperAdmin') setActiveTab('shops');
 
-            setStoreProfile(prev => ({ ...prev, plan: data.plan || 'Free' }));
-            
-            // 🔥 ถ้าเครื่องนี้ยังไม่มีโปรไฟล์ ให้ดึงชื่อร้านตอนสมัครจาก Firestore มาใส่เป็นค่าเริ่มต้น
-            if (!localStorage.getItem('smartlabel_profile') && data.storeName) {
-            // 📥 ดึงข้อมูลร้านค้าจาก Firebase มาใส่ตะกร้าหลัก (storeProfile) ให้ครบทุกช่อง!
-                    setStoreProfile({
-                      name: data.storeName || "",
-                      phone: data.phone || "",          // 👈 บอกให้ดึงเบอร์โทรมาด้วย!
-                      address: data.address || "",      // 👈 บอกให้ดึงที่อยู่มาด้วย!
-                      plan: data.plan || "Free"         // 👈 ดึงแพ็กเกจมาด้วย (ที่เราทำกันเมื่อวาน)
-                    });
+          if (userSnap.exists()) {
+            const data = userSnap.data();
+            const currentRole = data.role;
+            setUserRole(currentRole);
+
+            // 🤝 กรณีเป็น Affiliate (พาร์ทเนอร์)
+            if (currentRole === 'Affiliate') {
+              setAffiliateData(data);
+              const qW = query(collection(db, "withdrawals"), where("affiliateId", "==", currentUser.uid));
+              getDocs(qW).then(snap => {
+                const wList = []; snap.forEach(d => wList.push({ id: d.id, ...d.data() }));
+                setWithdrawalHistory(wList.sort((a, b) => b.createdAt?.toMillis() - a.createdAt?.toMillis()));
+              });
             }
-            if (!localStorage.getItem(`has_seen_tutorial_${currentUser.uid}`) && data.role === 'Owner') {
-              setShowTutorial(true);
+
+            // 🚀 จุดสำคัญ: การจัดการข้อมูลร้านค้า (Store Profile & Quota)
+            if (['Admin', 'Staff'].includes(currentRole)) {
+              // 👥 ถ้าเป็น "ลูกน้อง": ให้ไปดึงข้อมูลจากไอดีของ "เถ้าแก่" (ownerId)
+              if (data.ownerId) {
+                const ownerRef = doc(db, "users", data.ownerId);
+                const ownerSnap = await getDoc(ownerRef);
+                if (ownerSnap.exists()) {
+                  const ownerData = ownerSnap.data();
+                  // 📥 ดึงข้อมูลของเถ้าแก่มาใส่ให้ลูกน้องเห็น
+                  setStoreProfile({
+                    name: ownerData.storeName || "ร้านค้าสมาชิก",
+                    phone: ownerData.phone || "",
+                    address: ownerData.address || "",
+                    plan: ownerData.plan || "Free" // 🔓 ม่านจะเปิดที่นี่เพราะ plan จะเป็น Premium ตามเถ้าแก่
+                  });
+                  setQuota(ownerData.quota || 0); // 🎫 โควต้าจะเด้งขึ้นตามเถ้าแก่
+                  setUserOwnerId(data.ownerId);
+                }
+              }
+            } else {
+              // 👨‍💼 ถ้าเป็น "Owner" หรือ "SuperAdmin": ใช้ข้อมูลตัวเองตามปกติ
+              setStoreProfile({
+                name: data.storeName || "",
+                phone: data.phone || "",
+                address: data.address || "",
+                plan: data.plan || "Free"
+              });
+              setQuota(data.quota || 0);
+              setUserOwnerId(currentUser.uid);
+              
+              if (currentRole === 'SuperAdmin') setActiveTab('shops');
+              // โชว์ Tutorial เฉพาะ Owner
+              if (!localStorage.getItem(`has_seen_tutorial_${currentUser.uid}`)) {
+                setShowTutorial(true);
+              }
             }
+
           } else {
-        // 🔥 สร้างทางแยกเช็คว่า สมัครมาจากหน้าพาร์ทเนอร์ หรือ หน้าแม่ค้า
-        if (authType === 'partner') {
-          // 🤝 1. ถ้าเป็นนักการตลาด (Affiliate)
-          await setDoc(userRef, {
-            email: currentUser.email,
-            role: 'Affiliate',       // 👈 กำหนด Role ให้ถูกต้อง
-            name: '',                // (ค่อยให้ไปอัปเดตชื่อทีหลังได้)
-            phone: '',               
-            referralCode: "SL" + Math.floor(1000 + Math.random() * 9000), // สุ่มรหัสแนะนำเบื้องต้น
-            balance: 0,
-            totalEarned: 0,
-            ownerId: currentUser.uid,
-            createdAt: serverTimestamp()
-          });
-          setUserRole('Affiliate');
-          // (ถ้ามี state ควบคุม tab ให้พาไปหน้า affiliate)
-          // setActiveTab('affiliates'); 
-        } else {
-          // 📦 2. ถ้าเป็นแม่ค้า (Owner)
-          await setDoc(userRef, { 
-            email: currentUser.email, 
-            role: 'Owner',           // 👈 กำหนด Role เป็นแม่ค้า
-            quota: 50,             
-            usedQuota: 0,          
-            plan: 'Free',          
-            storeName: '',         
-            ownerId: currentUser.uid, 
-            createdAt: serverTimestamp() 
-          });
-          setUserRole('Owner');
-          setQuota(50);
-        }
-            setUserRole('Owner'); setQuota(20); setUserOwnerId(currentUser.uid); 
+            // 🆕 กรณีเป็นผู้ใช้ใหม่ (สมัครสมาชิกครั้งแรก)
+            const roleToSet = authType === 'partner' ? 'Affiliate' : 'Owner';
+            const initialData = {
+              email: currentUser.email,
+              role: roleToSet,
+              ownerId: currentUser.uid,
+              createdAt: serverTimestamp(),
+              ...(roleToSet === 'Affiliate' ? { balance: 0, referralCode: "SL" + Math.floor(1000 + Math.random() * 9000) } : { quota: 50, plan: 'Free', storeName: '' })
+            };
+            await setDoc(userRef, initialData);
+            setUserRole(roleToSet);
+            setQuota(roleToSet === 'Owner' ? 50 : 0);
+            setUserOwnerId(currentUser.uid);
           }
-        } catch (error) { console.error("Error:", error); }
+        } catch (error) { console.error("Error fetching user data:", error); }
       } else {
+        // 🚪 ออกจากระบบ: ล้างค่าทั้งหมด
         setUser(null); setUserRole(''); setQuota(0); setUserOwnerId(null); setAffiliateData(null);
       }
       setLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [authType]); // เฝ้าดู authType เผื่อมีการสลับหน้าสมัครพาร์ทเนอร์
 
 useEffect(() => {
     const savedProfile = localStorage.getItem('smartlabel_profile');
@@ -366,7 +372,8 @@ useEffect(() => {
   const loadDashboardData = async () => {
     if (!userOwnerId || userRole === 'SuperAdmin') return; 
     try {
-      const q = query(collection(db, "orders"), where("ownerId", "==", userOwnerId));
+      // เปลี่ยนจาก user.uid เป็น userOwnerId แบบนี้ครับ
+      const q = query(collection(db, "users"), where("ownerId", "==", userOwnerId));
       const querySnapshot = await getDocs(q);
       let total = 0, codCount = 0, codSum = 0, transferCount = 0;
       const dateMap = {}; const ordersList = [];
@@ -520,7 +527,7 @@ useEffect(() => {
       const staffEmail = `${newStaff.phone}@smartlabel.com`;
       const userCredential = await createUserWithEmailAndPassword(secondaryAuth, staffEmail, '123456');
       const newUid = userCredential.user.uid;
-      await setDoc(doc(db, "users", newUid), { email: staffEmail, name: newStaff.name, phone: newStaff.phone, role: newStaff.role, ownerId: user.uid, createdAt: serverTimestamp() });
+      await setDoc(doc(db, "users", newUid), { email: staffEmail, name: newStaff.name, phone: newStaff.phone, role: newStaff.role, ownerId: userOwnerId, createdAt: serverTimestamp() });
       await signOut(secondaryAuth);
       alert(`เพิ่มพนักงานสำเร็จ! รหัสผ่านเริ่มต้นคือ: 123456`); setNewStaff({ name: '', phone: '', role: 'Staff' }); loadStaffData();
     } catch (error) { alert("เกิดข้อผิดพลาด หรือเบอร์โทรนี้ถูกใช้งานไปแล้วครับ"); }
@@ -1465,7 +1472,7 @@ if (!user && !isAuthView) {
               )}
               
               {/* เฉพาะเจ้าของร้าน ถึงเห็นเมนูจัดการลูกน้อง */}
-              {userRole === 'Owner' && (
+              {['Owner', 'Admin'].includes(userRole) && (
                 <button onClick={() => setActiveTab('team')} className={`btn-cute px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${activeTab === 'team' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>👥 พนักงาน</button>
               )}
 
@@ -1482,22 +1489,28 @@ if (!user && !isAuthView) {
           </div>
         </div>
         
-        {/* 🔥 ซ่อนแถบแสดงโควต้าและตั้งค่าร้าน ไม่ให้ SuperAdmin เห็น */}
-        {userRole === 'Owner' && (
+        {/* 🔥 โซนที่ 1: แถบแสดงโควต้า ให้ Owner และ Admin เห็น */}
+        {['Owner', 'Admin'].includes(userRole) && (
           <div className="flex justify-between items-center bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl border border-blue-100 shadow-inner">
-            <div className="text-sm flex items-center gap-4">
-                <div className="font-black text-indigo-700 bg-white px-5 py-2.5 rounded-xl shadow-sm flex items-center gap-3 border border-indigo-50">
-                  🎫 โควต้าคงเหลือ: <span className={`text-xl ${quota <= 5 ? 'text-rose-500 animate-pulse' : 'text-indigo-900'}`}>{quota} <span className="text-sm font-bold text-indigo-400">ใบ</span></span>
-                  <button onClick={() => setIsTopupOpen(true)} className="btn-cute ml-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-1.5 rounded-lg text-xs shadow-md shadow-indigo-500/30">➕ เติมโควต้า</button>
-                </div>
-              <span className="text-slate-600 font-medium hidden md:inline-block"><span className="text-slate-400 mr-2">📍 ร้าน:</span>{storeProfile.name}</span>
+            <div className="font-black text-indigo-700 bg-white px-5 py-2.5 rounded-xl shadow-sm flex items-center gap-3 border border-indigo-50">
+              🎫 โควต้าคงเหลือ: 
+              <span className={`text-xl ${quota <= 5 ? 'text-rose-500 animate-pulse' : 'text-indigo-900'}`}>
+                {quota} <span className="text-sm font-bold text-indigo-400">ใบ</span>
+              </span>
+              <button onClick={() => setIsTopupOpen(true)} className="btn-cute ml-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-1.5 rounded-lg text-xs shadow-md shadow-indigo-500/30">
+                ➕ เติมโควต้า
+              </button>
             </div>
+            
+            {/* 🛑 โซนที่ 2: ล็อคปุ่มตั้งค่าร้าน ให้เฉพาะ Owner (เถ้าแก่) เห็นเท่านั้น! */}
+            {userRole === 'Owner' && (
               <button 
                 onClick={() => {
                   setTempProfile(storeProfile); // 👈 1. บังคับโคลนข้อมูลของจริงล่าสุด มาใส่ตะกร้าชั่วคราวก่อน
                   setIsSettingsOpen(true);      // 👈 2. ค่อยสั่งเปิดหน้าต่าง
                 }} className="btn-cute bg-white border border-slate-200 text-slate-700 px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-colors">⚙️ ตั้งค่าร้าน
               </button>
+            )}
           </div>
         )}
       </header>
@@ -1767,7 +1780,7 @@ if (!user && !isAuthView) {
                </div>
             </div>
          </div>
-      ) : activeTab === 'team' && userRole === 'Owner' ? (
+      ) : activeTab === 'team' && ['Owner', 'Admin'].includes(userRole) ? (
           <div className="flex flex-col lg:flex-row gap-6">
             <div className="w-full lg:w-1/3">
               <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 sticky top-6">
@@ -1792,7 +1805,25 @@ if (!user && !isAuthView) {
                             <td className="py-4 px-6 font-bold text-slate-800">{staff.name}</td>
                             <td className="py-4 px-6 font-mono font-medium text-slate-600">{staff.phone}</td>
                             <td className="py-4 px-6"><span className={`px-3 py-1 rounded-full text-xs font-bold shadow-sm ${staff.role === 'Admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>{staff.role}</span></td>
-                            <td className="py-4 px-6 text-center"><button onClick={() => handleDeleteStaff(staff.id)} className="btn-cute text-rose-500 hover:text-white font-bold text-xs bg-rose-50 hover:bg-rose-500 px-3 py-1.5 rounded-lg transition-colors">ลบออก</button></td>
+                            <td className="py-4 px-6 text-center">
+                              {/* 🛡️ กฎเหล็กการลบพนักงาน:
+                                  1. ห้ามลบ Owner เด็ดขาด (staff.role !== 'Owner')
+                                  2. ห้ามลบตัวเอง (staff.id !== user.uid)
+                                  3. ถ้าคนกดคือ Owner ให้ลบใครก็ได้ (ยกเว้นตัวเองตามข้อ 2)
+                                  4. ถ้าคนกดคือ Admin ให้ลบได้เฉพาะ 'Staff' เท่านั้น (ป้องกัน Admin ตีกันเอง)
+                              */}
+                              {staff.role !== 'Owner' && staff.id !== user.uid && (userRole === 'Owner' || (userRole === 'Admin' && staff.role === 'Staff')) ? (
+                                <button 
+                                  onClick={() => handleDeleteStaff(staff.id)} 
+                                  className="btn-cute text-rose-500 hover:text-white font-bold text-xs bg-rose-50 hover:bg-rose-500 px-3 py-1.5 rounded-lg transition-colors"
+                                >
+                                  ลบออก
+                                </button>
+                              ) : (
+                                // ถ้าไม่เข้าเงื่อนไข ให้โชว์ขีดกลางโง่ๆ แทนปุ่มลบครับ
+                                <span className="text-slate-300 text-xs font-bold">-</span>
+                              )}
+                            </td>
                           </tr>
                         ))
                       )}
@@ -1856,38 +1887,38 @@ if (!user && !isAuthView) {
            </div>
          </div>
       ) : activeTab === 'billing' && userRole === 'SuperAdmin' ? (
-      <div className="bg-white p-8 rounded-3xl shadow-sm border-t-4 border-emerald-400">
-        <h2 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-2">💳 ตรวจสอบและอนุมัติบิล (SuperAdmin)</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {billingRequests.map((req, index) => (
-            <div key={index} className="border border-slate-200 rounded-3xl bg-white shadow-lg overflow-hidden flex flex-col card-hover">
-              <div className="bg-slate-100 h-48 w-full border-b border-slate-200 relative">
-                {req.data.slipImage ? (
-                  <img src={req.data.slipImage} alt="Slip" className="w-full h-full object-cover" onClick={() => window.open(req.data.slipImage, '_blank')} title="คลิกเพื่อดูรูปใหญ่" style={{cursor: 'zoom-in'}} />
-                ) : (
-                  <div className="flex items-center justify-center h-full text-slate-400 font-medium">ไม่มีรูปภาพแนบมา</div>
-                )}
-                <div className="absolute top-3 right-3 bg-rose-500 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-md">รอตรวจสอบ</div>
-              </div>
-              
-              <div className="p-6 flex-1 flex flex-col justify-between">
-                <div>
-                  <p className="font-black text-slate-800 text-lg">{req.data.storeName || 'ไม่มีชื่อร้าน'}</p>
-                  <p className="text-xs text-slate-500 mb-4 font-medium">{req.data.userEmail}</p>
-                  <div className="bg-slate-50 p-4 rounded-xl mb-6 flex justify-between border border-slate-100">
-                    <div><p className="text-xs text-slate-500 font-bold mb-1 uppercase tracking-widest">แพ็กเกจที่ขอ</p><p className="font-black text-blue-600 text-xl">{req.data.package} <span className="text-sm">ใบ</span></p></div>
-                    <div className="text-right"><p className="text-xs text-slate-500 font-bold mb-1 uppercase tracking-widest">ยอดโอน</p><p className="font-black text-emerald-600 text-xl">฿{req.data.amount}</p></div>
-                  </div>
+        <div className="bg-white p-8 rounded-3xl shadow-sm border-t-4 border-emerald-400">
+          <h2 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-2">💳 ตรวจสอบและอนุมัติบิล (SuperAdmin)</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {billingRequests.map((req, index) => (
+              <div key={index} className="border border-slate-200 rounded-3xl bg-white shadow-lg overflow-hidden flex flex-col card-hover">
+                <div className="bg-slate-100 h-48 w-full border-b border-slate-200 relative">
+                  {req.data.slipImage ? (
+                    <img src={req.data.slipImage} alt="Slip" className="w-full h-full object-cover" onClick={() => window.open(req.data.slipImage, '_blank')} title="คลิกเพื่อดูรูปใหญ่" style={{cursor: 'zoom-in'}} />
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-slate-400 font-medium">ไม่มีรูปภาพแนบมา</div>
+                  )}
+                  <div className="absolute top-3 right-3 bg-rose-500 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-md">รอตรวจสอบ</div>
                 </div>
-                <button onClick={() => handleApproveTopup(req.id, req.data.userId, req.data.package, req.data.amount)} className="btn-cute w-full bg-emerald-500 text-white font-black py-4 rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 text-lg">✅ ยืนยันว่ายอดเงินเข้าแล้ว</button>
+                
+                <div className="p-6 flex-1 flex flex-col justify-between">
+                  <div>
+                    <p className="font-black text-slate-800 text-lg">{req.data.storeName || 'ไม่มีชื่อร้าน'}</p>
+                    <p className="text-xs text-slate-500 mb-4 font-medium">{req.data.userEmail}</p>
+                    <div className="bg-slate-50 p-4 rounded-xl mb-6 flex justify-between border border-slate-100">
+                      <div><p className="text-xs text-slate-500 font-bold mb-1 uppercase tracking-widest">แพ็กเกจที่ขอ</p><p className="font-black text-blue-600 text-xl">{req.data.package} <span className="text-sm">ใบ</span></p></div>
+                      <div className="text-right"><p className="text-xs text-slate-500 font-bold mb-1 uppercase tracking-widest">ยอดโอน</p><p className="font-black text-emerald-600 text-xl">฿{req.data.amount}</p></div>
+                    </div>
+                  </div>
+                  <button onClick={() => handleApproveTopup(req.id, req.data.userId, req.data.package, req.data.amount)} className="btn-cute w-full bg-emerald-500 text-white font-black py-4 rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 text-lg">✅ ยืนยันว่ายอดเงินเข้าแล้ว</button>
+                </div>
               </div>
-            </div>
-          ))}
-          {billingRequests.length === 0 && (
-            <div className="col-span-full py-20 text-center text-slate-400"><span className="text-6xl mb-4 block">🎉</span><p className="text-xl font-bold">สุดยอด! ไม่มีรายการค้างตรวจสอบเลย</p></div>
-          )}
+            ))}
+            {billingRequests.length === 0 && (
+              <div className="col-span-full py-20 text-center text-slate-400"><span className="text-6xl mb-4 block">🎉</span><p className="text-xl font-bold">สุดยอด! ไม่มีรายการค้างตรวจสอบเลย</p></div>
+            )}
+          </div>
         </div>
-      </div>
       ) : null}
     
       {/* ======================================================== */}
