@@ -513,51 +513,71 @@ export default function App() {
     if (activeTab === 'affiliates' && userRole === 'SuperAdmin') loadAffiliateDataForAdmin();
   }, [activeTab, userRole, userOwnerId]);
 
-  const handleAuth = async (e) => {
+const handleAuth = async (e) => {
     e.preventDefault();
-    const emailInput = e.target.email.value;
+    const emailInput = e.target.email.value.trim();
     const password = e.target.password.value;
     
-    // แบ่งฟอร์แมตอีเมลตามประเภท (พาร์ทเนอร์ใช้เบอร์โทรล็อกอิน เราจะแอบต่อท้ายด้วย @partner... ให้ครับ)
-    const domain = authType === 'partner' ? '@partner.smartlabel.com' : '@smartlabel.com';
-    const formattedEmail = emailInput.includes('@') ? emailInput : `${emailInput}${domain}`;
+    // 📧 ปรับระบบการจัดการอีเมลให้เป็นสากล
+    // ถ้าเป็น Merchant และใส่แค่เบอร์โทร (ไม่มี @) ระบบจะยังช่วยต่อท้ายให้เหมือนเดิมเพื่อความสะดวก
+    // แต่ถ้าเป็น Partner เราจะใช้อีเมลที่เขากรอกมาโดยตรงเลยครับ
+    let formattedEmail = emailInput;
+    if (!emailInput.includes('@')) {
+      const domain = authType === 'partner' ? '@partner.smartlabel.com' : '@smartlabel.com';
+      formattedEmail = `${emailInput}${domain}`;
+    }
 
     try {
       if (authMode === 'login') { 
         await signInWithEmailAndPassword(auth, formattedEmail, password); 
       } else {
         const userCredential = await createUserWithEmailAndPassword(auth, formattedEmail, password);
+        const user = userCredential.user;
         
         if (authType === 'partner') {
-           // 🔥 สร้างรหัสแนะนำ 6 ตัวอักษร สำหรับพาร์ทเนอร์
+           // 🔥 สร้างรหัสแนะนำ (Referral Code) สำหรับพาร์ทเนอร์
            const refCode = Math.random().toString(36).substring(2, 8).toUpperCase();
            const partnerName = e.target.partnerName.value;
-           await setDoc(doc(db, "users", userCredential.user.uid), { 
-              email: formattedEmail, role: 'Affiliate', ownerId: userCredential.user.uid,
-              name: partnerName, phone: emailInput, referralCode: refCode,
-              balance: 0, totalEarned: 0, referredCount: 0, paymentInfo: '',
+
+           await setDoc(doc(db, "users", user.uid), { 
+              email: formattedEmail, // เก็บอีเมลจริงที่ใช้สมัคร
+              role: 'Affiliate', 
+              ownerId: user.uid,
+              name: partnerName, 
+              phone: emailInput.includes('@') ? '' : emailInput, // ถ้าเขาใส่อีเมลมา ช่องเบอร์โทรจะว่างไว้ให้เขาไปเติมในโปรไฟล์ครับ
+              referralCode: refCode,
+              balance: 0, 
+              totalEarned: 0, 
+              referredCount: 0, 
+              paymentInfo: '',
               createdAt: serverTimestamp() 
            });
            alert(`🎉 สมัครพาร์ทเนอร์สำเร็จ! รหัสแนะนำของคุณคือ: ${refCode}`);
         } else {
            const storeName = e.target.storeName.value;
-            await setDoc(userRef, { 
-              email: currentUser.email, 
+           
+           // ✅ บันทึกข้อมูล Owner (แม่ค้า)
+           await setDoc(doc(db, "users", user.uid), { 
+              email: formattedEmail, 
               role: 'Owner',           
               quota: 50,             
-              usedQuota: 0,          // 👈 เติมบรรทัดนี้!
-              plan: 'Free',          // 👈 เติมบรรทัดนี้!
-              storeName: '',         // (หรือถ้าโค้ดเดิมมีเก็บชื่อร้านก็ใช้ตัวเดิมครับ)
-              ownerId: currentUser.uid, 
-              referredByCode: refCode, // (รหัสพาร์ทเนอร์ โค้ดเดิมของท่าน CEO)
+              usedQuota: 0,          
+              plan: 'Free',          
+              storeName: storeName, 
+              ownerId: user.uid, 
               createdAt: serverTimestamp() 
-            });
+           });
+
            const initialProfile = { name: storeName, phone: '', address: '' };
-           setStoreProfile(initialProfile); localStorage.setItem('smartlabel_profile', JSON.stringify(initialProfile));
+           setStoreProfile(initialProfile); 
+           localStorage.setItem('smartlabel_profile', JSON.stringify(initialProfile));
            alert("🎉 สมัครสมาชิกสำเร็จ! รับโควต้าทดลองใช้ฟรี 50 จ่าหน้าครับ");
         }
       }
-    } catch (error) { alert(authMode === 'login' ? "ข้อมูลเข้าสู่ระบบไม่ถูกต้องครับ" : "เกิดข้อผิดพลาด หรือไอดีนี้ถูกใช้งานแล้วครับ"); }
+    } catch (error) { 
+      console.error("Auth Error:", error);
+      alert(authMode === 'login' ? "ข้อมูลเข้าสู่ระบบไม่ถูกต้องครับ" : "เกิดข้อผิดพลาด หรือไอดีนี้ถูกใช้งานแล้วครับ"); 
+    }
   };
 
   const handleLogout = () => { 
@@ -1065,38 +1085,71 @@ export default function App() {
             </p>
           </div>
           <form onSubmit={handleAuth}>
-            {authMode === 'register' && authType === 'merchant' && (<div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">ชื่อร้านค้าของคุณ</label><input name="storeName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none bg-gray-50 transition-all" placeholder="เช่น ToppySmart Shop" /></div>)}
-            {authMode === 'register' && authType === 'partner' && (<div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">ชื่อ-นามสกุล (พาร์ทเนอร์)</label><input name="partnerName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-indigo-200 outline-none bg-gray-50 transition-all" placeholder="เช่น นิชาภา สอนชา" /></div>)}
-            <div className="mb-4"><label className="block text-sm font-bold text-gray-700 mb-1">{authType === 'partner' ? 'เบอร์โทรศัพท์ (ID)' : (authMode === 'login' ? 'อีเมล หรือ เบอร์โทรศัพท์' : 'อีเมลของคุณ')}</label><input name="email" type="text" required className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`} placeholder={authType === 'partner' ? "089xxxxxxx" : (authMode === 'login' ? "เบอร์โทรศัพท์ หรือ อีเมล" : "owner@mail.com")} /></div>
-            <div className="mb-6">
-            <div className="flex justify-between items-center mb-1">
-              <label className="block text-sm font-bold text-gray-700">รหัสผ่าน</label>
-              {/* 🔥 ปุ่มลืมรหัสผ่าน (โชว์เฉพาะหน้าล็อกอิน) */}
-              {authMode === 'login' && (
-                <button 
-                  type="button" 
-                  onClick={() => {
-                    // ดึงค่าอีเมลจากฟอร์มสดๆ มาใช้
-                    const emailInput = document.querySelector('input[name="email"]');
-                    if (!emailInput || !emailInput.value) {
-                      alert("⚠️ กรุณากรอกอีเมลของคุณในช่องด้านบน แล้วคลิก 'ลืมรหัสผ่าน' อีกครั้งครับ");
-                      return;
-                    }
-                    import("firebase/auth").then(({ sendPasswordResetEmail }) => {
-                      sendPasswordResetEmail(auth, emailInput.value)
-                        .then(() => alert(`✅ ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่: ${emailInput.value} แล้วครับ!`))
-                        .catch(() => alert("❌ ไม่พบอีเมลนี้ในระบบ หรือกรอกรูปแบบผิดครับ"));
-                    });
-                  }} 
-                  className={`text-xs font-bold hover:underline ${authType === 'partner' ? 'text-indigo-500' : 'text-blue-500'}`}
-                >
-                  ลืมรหัสผ่าน?
-                </button>
-              )}
+            {authMode === 'register' && authType === 'merchant' && (
+              <div className="mb-4">
+                <label className="block text-sm font-bold text-gray-700 mb-1">ชื่อร้านค้าของคุณ</label>
+                <input name="storeName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-200 outline-none bg-gray-50 transition-all" placeholder="เช่น ToppySmart Shop" />
+              </div>
+            )}
+            
+            {authMode === 'register' && authType === 'partner' && (
+              <div className="mb-4">
+                <label className="block text-sm font-bold text-gray-700 mb-1">ชื่อ-นามสกุล (พาร์ทเนอร์)</label>
+                <input name="partnerName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-indigo-200 outline-none bg-gray-50 transition-all" placeholder="เช่น นิชาภา สอนชา" />
+              </div>
+            )}
+
+            {/* 📧 ปรับช่องนี้ให้เป็นอีเมลสำหรับพาร์ทเนอร์แบบ 100% */}
+            <div className="mb-4">
+              <label className="block text-sm font-bold text-gray-700 mb-1">
+                {authType === 'partner' ? 'อีเมลของคุณ (สำหรับรับค่าคอมมิชชัน)' : (authMode === 'login' ? 'อีเมล หรือ เบอร์โทรศัพท์' : 'อีเมลของคุณ')}
+              </label>
+              <input 
+                name="email" 
+                type="text" 
+                required 
+                className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`} 
+                placeholder={authType === 'partner' ? "partner@mail.com" : (authMode === 'login' ? "เบอร์โทรศัพท์ หรือ อีเมล" : "owner@mail.com")} 
+              />
             </div>
-            <input name="password" type="password" required className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`} placeholder="••••••••" />
-          </div>
-            <button type="submit" className={`btn-cute w-full text-white font-bold py-3 rounded-xl shadow-lg ${authType === 'partner' ? 'bg-indigo-600 hover:shadow-indigo-500/50' : 'bg-blue-600 hover:shadow-blue-500/50'}`}>{authMode === 'login' ? 'เข้าสู่ระบบ' : '✨ สมัครสมาชิกฟรี'}</button>
+
+            {/* 🔑 ช่องรหัสผ่าน พร้อมปุ่มลืมรหัสผ่านที่พาร์ทเนอร์ก็กดได้ */}
+            <div className="mb-6">
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-sm font-bold text-gray-700">รหัสผ่าน</label>
+                {authMode === 'login' && (
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      const emailInput = document.querySelector('input[name="email"]');
+                      if (!emailInput || !emailInput.value || !emailInput.value.includes('@')) {
+                        alert("⚠️ กรุณากรอก 'อีเมล' ของคุณในช่องด้านบน แล้วคลิก 'ลืมรหัสผ่าน' อีกครั้งครับ");
+                        return;
+                      }
+                      import("firebase/auth").then(({ sendPasswordResetEmail }) => {
+                        sendPasswordResetEmail(auth, emailInput.value)
+                          .then(() => alert(`✅ ระบบได้ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่: ${emailInput.value} เรียบร้อยแล้วครับ!`))
+                          .catch(() => alert("❌ ไม่พบที่อยู่อีเมลนี้ในระบบ กรุณาตรวจสอบอีกครั้งครับ"));
+                      });
+                    }} 
+                    className={`text-xs font-bold hover:underline ${authType === 'partner' ? 'text-indigo-500' : 'text-blue-500'}`}
+                  >
+                    ลืมรหัสผ่าน?
+                  </button>
+                )}
+              </div>
+              <input 
+                name="password" 
+                type="password" 
+                required 
+                className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`} 
+                placeholder="••••••••" 
+              />
+            </div>
+
+            <button type="submit" className={`btn-cute w-full text-white font-bold py-3 rounded-xl shadow-lg ${authType === 'partner' ? 'bg-indigo-600 hover:shadow-indigo-500/50' : 'bg-blue-600 hover:shadow-blue-500/50'}`}>
+              {authMode === 'login' ? 'เข้าสู่ระบบ' : '✨ สมัครสมาชิกฟรี'}
+            </button>
           </form>
           <div className="mt-6 text-center border-t pt-4">
             {authMode === 'login' ? <p className="text-sm text-gray-600">{authType === 'partner' ? 'พาร์ทเนอร์ใหม่?' : 'เจ้าของร้านคนใหม่?'} <button onClick={() => setAuthMode('register')} className={`font-bold hover:underline ${authType === 'partner' ? 'text-indigo-600' : 'text-blue-600'}`}>ลงทะเบียนที่นี่</button></p> : <p className="text-sm text-gray-600">มีบัญชีอยู่แล้ว? <button onClick={() => setAuthMode('login')} className={`font-bold hover:underline ${authType === 'partner' ? 'text-indigo-600' : 'text-blue-600'}`}>เข้าสู่ระบบ</button></p>}
