@@ -375,33 +375,70 @@ export default function App() {
       }
     }, []);
 
-  const loadDashboardData = async () => {
+  // 📡 ระบบดึงข้อมูล Dashboard และ History แบบ Real-time
+  useEffect(() => {
     if (!userOwnerId || userRole === 'SuperAdmin') return; 
-    try {
-      // เปลี่ยนจาก user.uid เป็น userOwnerId แบบนี้ครับ
-      const q = query(collection(db, "users"), where("ownerId", "==", userOwnerId));
-      const querySnapshot = await getDocs(q);
+
+    // 🚨 แก้บั๊ก: ชี้เป้าหมายไปที่แฟ้ม "orders" ให้ถูกต้อง
+    const q = query(collection(db, "orders"), where("ownerId", "==", userOwnerId));
+
+    // ใช้ onSnapshot แทน getDocs เพื่อให้ข้อมูลไหลเข้าจอทันทีที่กดเซฟ (Real-time)
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
       let total = 0, codCount = 0, codSum = 0, transferCount = 0;
-      const dateMap = {}; const ordersList = [];
+      const dateMap = {}; 
+      const staffMap = {}; // 🏆 กล่องเก็บคะแนนสำหรับ Leaderboard
+      const ordersList = [];
+
       querySnapshot.forEach((doc) => {
-        const data = doc.data(); ordersList.push({ id: doc.id, ...data });
+        const data = doc.data(); 
+        ordersList.push({ id: doc.id, ...data });
         total++;
-        if (data.isCOD) { codCount++; codSum += data.codAmount || 0; } else { transferCount++; }
+
+        if (data.isCOD) { 
+            codCount++; 
+            codSum += Number(data.codAmount) || 0; 
+        } else { 
+            transferCount++; 
+        }
+
+        // 📅 จัดกลุ่มยอดรายวันสำหรับกราฟแท่ง
         if (data.createdAt) {
            const dateStr = data.createdAt.toDate().toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
            if (!dateMap[dateStr]) dateMap[dateStr] = { name: dateStr, โอนเงิน: 0, COD: 0 };
            if (data.isCOD) dateMap[dateStr].COD += 1; else dateMap[dateStr].โอนเงิน += 1;
         }
+
+        // 🏆 เก็บแต้มพนักงานสำหรับ Leaderboard
+        const creator = data.creatorName || data.phone || 'Owner';
+        staffMap[creator] = (staffMap[creator] || 0) + 1;
       });
+
+      // จัดเรียง History ให้อันใหม่ล่าสุดอยู่บนสุด
       ordersList.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+      
+      // จัดเรียง Leaderboard พนักงานจากคนที่แพ็คเยอะสุดไปน้อยสุด
+      const staffLeaderboard = Object.keys(staffMap).map(name => ({
+         name: name,
+         ชิ้นงาน: staffMap[name]
+      })).sort((a, b) => b.ชิ้นงาน - a.ชิ้นงาน);
+
+      // อัปเดตข้อมูลเข้าสู่หน้าจอ
       setHistoryOrders(ordersList);
       setDashboardStats({
-        totalOrders: total, codOrders: codCount, totalCodAmount: codSum,
+        totalOrders: total, 
+        codOrders: codCount, 
+        totalCodAmount: codSum,
         pieData: [{ name: 'โอนเงินแล้ว', value: transferCount }, { name: 'เก็บเงินปลายทาง', value: codCount }],
-        barData: Object.values(dateMap).sort((a, b) => new Date(a.name) - new Date(b.name)) || [{ name: 'รอข้อมูลใหม่', โอนเงิน: 0, COD: 0 }]
+        barData: Object.values(dateMap).sort((a, b) => new Date(a.name) - new Date(b.name)) || [{ name: 'รอข้อมูลใหม่', โอนเงิน: 0, COD: 0 }],
+        staffData: staffLeaderboard // 👈 โยนข้อมูลให้กราฟ Gamification
       });
-    } catch (error) { console.error(error); }
-  };
+    }, (error) => { 
+        console.error("Dashboard Real-time Error:", error); 
+    });
+
+    // คืนค่าฟังก์ชันยกเลิกการดึงข้อมูลเมื่อสลับหน้าจอ (ลดภาระเซิร์ฟเวอร์)
+    return () => unsubscribe();
+  }, [userOwnerId, userRole]);
 
   const loadBillingRequests = () => {
       try {
@@ -506,7 +543,7 @@ export default function App() {
   }, []);*/}
   
   useEffect(() => { 
-    if (activeTab === 'dashboard') loadDashboardData(); 
+
     if (activeTab === 'billing' && userRole === 'SuperAdmin') loadBillingRequests();
     if (activeTab === 'team' && userRole === 'Owner') loadStaffData();
     if (activeTab === 'shops' && userRole === 'SuperAdmin') loadAllShopsData();
@@ -764,7 +801,7 @@ const handleAuth = async (e) => {
       }
     };
 
-const handleSaveAndPrint = async () => {
+  const handleSaveAndPrint = async () => {
     // 1. กรองเอาเฉพาะออเดอร์ที่สมบูรณ์และยังไม่ได้เซฟ
     const readyToSaveOrders = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
     
@@ -821,6 +858,42 @@ const handleSaveAndPrint = async () => {
     // 💡 ทริคเสริม: ถ้าท่าน CEO มีตัวแปร state ที่ใช้เก็บค่าในช่องพิมพ์แชท (เช่น setInputText) 
     // สามารถเอามาเรียกใช้ตรงนี้เพื่อล้างช่องพิมพ์แชทฝั่งซ้ายได้ด้วยครับ เช่น:
     // setInputText(''); 
+  };
+
+  // 🖨️ ฟังก์ชันสำหรับดึงข้อมูลเก่ากลับมาที่หน้า "สร้างจ่าหน้า"
+  const handleReprint = (oldOrder) => {
+    if (!oldOrder) return;
+
+    // 🛡️ ฟังก์ชันผู้พิทักษ์: บังคับทุกอย่างให้เป็น String เสมอ ป้องกันหน้าจอขาว
+    const safeStr = (val) => (val ? String(val) : '');
+
+    const recoveredData = {
+      customerName: (oldOrder.customerName && oldOrder.customerName !== 'ไม่ระบุชื่อลูกค้า') ? safeStr(oldOrder.customerName) : '',
+      phone: safeStr(oldOrder.phone),
+      address: safeStr(oldOrder.address),
+      zipcode: safeStr(oldOrder.zipcode),
+      province: '', 
+      district: '', 
+      subdistrict: '', 
+      items: Array.isArray(oldOrder.items) ? oldOrder.items : [], 
+      isCOD: Boolean(oldOrder.isCOD),
+      codAmount: oldOrder.isCOD ? safeStr(oldOrder.codAmount) : '',
+      warnings: [] // 👈 พระเอกขี่ม้าขาว! เติมตะกร้าคำเตือนเปล่าๆ เข้าไป ระบบจะได้หา .length เจอครับ!
+    };
+
+    // ส่งข้อมูลกลับไปที่กล่องสร้างจ่าหน้า
+    setOrders([{ 
+      id: Date.now(), 
+      rawText: safeStr(oldOrder.rawText), 
+      parsedData: recoveredData, 
+      isSaved: false,
+      crmSuggestion: null 
+    }]);
+
+    // เด้งกลับไปที่แท็บ 'maker'
+    setActiveTab('maker'); 
+    
+    // ไม่ต้องมี alert แล้วก็ได้ครับ จะได้สไลด์ปรู๊ดไปเลยแบบสมูทๆ
   };
 
   const handleEditHistory = (order) => { setOrders([{ id: Date.now(), rawText: order.rawText || '', parsedData: extractOrderData(order.rawText || ''), isSaved: false, crmSuggestion: null }, { id: Date.now() + 1, rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }]); setActiveTab('maker'); window.scrollTo(0, 0); };
@@ -1924,7 +1997,7 @@ const handleSaveAndPrint = async () => {
                </div>
                
                <div className="overflow-x-auto border border-slate-200 rounded-2xl">
-                 <table className="w-full text-sm text-left">
+                <table className="w-full text-sm text-left">
                    <thead className="bg-slate-50 uppercase text-xs font-black text-slate-500 tracking-wider border-b border-slate-200">
                      <tr>
                        <th className="py-4 px-6 whitespace-nowrap">วันที่ / เวลา</th>
@@ -1933,18 +2006,18 @@ const handleSaveAndPrint = async () => {
                        <th className="py-4 px-6 min-w-[200px]">ที่อยู่จัดส่ง</th>
                        <th className="py-4 px-6 whitespace-nowrap">คนทำรายการ</th>
                        <th className="py-4 px-6 text-right whitespace-nowrap">ยอดเก็บเงิน (COD)</th>
+                       <th className="py-4 px-6 text-center whitespace-nowrap">จัดการ</th>
                      </tr>
                    </thead>
                    <tbody>
                      {filteredOrders.length === 0 ? (
-                        <tr><td colSpan="6" className="text-center py-16 text-slate-400 font-medium">ไม่พบข้อมูลที่ค้นหา หรือยังไม่มีออเดอร์ในวันนี้...</td></tr>
+                        <tr><td colSpan="7" className="text-center py-16 text-slate-400 font-medium">ไม่พบข้อมูลที่ค้นหา หรือยังไม่มีออเดอร์ในวันนี้...</td></tr>
                      ) : (
                         filteredOrders.map((order, idx) => (
                            <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
                               <td className="py-4 px-6 text-slate-500 whitespace-nowrap">{order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '-'}</td>
                               <td className="py-4 px-6 font-mono font-bold text-indigo-600 tracking-wider bg-indigo-50/30 whitespace-nowrap">REF-{order.id.slice(-6).toUpperCase()}</td>
                               <td className="py-4 px-6 whitespace-nowrap">
-                                 {/* โชว์ชื่อลูกค้า ถ้าไม่มีจะโชว์ว่า 'ไม่ระบุชื่อ' */}
                                  <p className="font-bold text-slate-800 text-base">{order.customerName || 'ไม่ระบุชื่อ'}</p>
                               </td>
                               <td className="py-4 px-6">
@@ -1952,13 +2025,22 @@ const handleSaveAndPrint = async () => {
                                  <span className="font-black text-slate-800 tracking-widest bg-slate-100 px-2 py-0.5 rounded text-xs">{order.zipcode}</span>
                               </td>
                               <td className="py-4 px-6 whitespace-nowrap text-xs font-bold text-slate-500">
-                                 {/* เพิ่มคอลัมน์คนทำรายการ เพื่อให้รู้ว่าออเดอร์นี้ใครเป็นคนกดบันทึก */}
                                  👤 {order.creatorName || order.phone || 'Owner'}
                               </td>
                               <td className="py-4 px-6 text-right">
                                  {order.isCOD 
                                   ? <span className="font-black text-xl text-orange-600 bg-orange-50 px-4 py-1.5 rounded-xl border border-orange-100">฿{order.codAmount}</span> 
                                   : <span className="font-black text-emerald-600 text-sm bg-emerald-50 px-4 py-1.5 rounded-xl border border-emerald-100">โอนเงินแล้ว</span>}
+                              </td>
+                              {/* 🖨️ ปุ่มสั่งพิมพ์ซ้ำ */}
+                              <td className="py-4 px-6 text-center">
+                                <button 
+                                  onClick={() => handleReprint(order)}
+                                  className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-600 hover:text-white transition-colors shadow-sm"
+                                  title="ดึงข้อมูลนี้กลับไปที่หน้าสร้างจ่าหน้า"
+                                >
+                                  🖨️ พิมพ์ซ้ำ
+                                </button>
                               </td>
                            </tr>
                         ))
