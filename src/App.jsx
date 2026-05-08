@@ -1179,21 +1179,21 @@ const handleAuth = async (e) => {
       );
     }
 
-  if (!user && isAuthView) {
-    // 💡 ตัวแปรเช็คว่ากำลังอยู่หน้า "สมัครพาร์ทเนอร์" ใช่หรือไม่
-    const isPartnerRegister = authMode === 'register' && authType === 'partner';
+if (!user && isAuthView) {
+    // 💡 เปลี่ยนเงื่อนไข: ถ้าเข้ามาโหมด "พาร์ทเนอร์" (ทั้งล็อกอินและลงทะเบียน) จะกางเป็น 2 คอลัมน์
+    const isPartnerAuth = authType === 'partner';
 
     return (
       <div className={`min-h-screen flex flex-col items-center justify-center p-4 md:p-6 font-sans relative transition-colors duration-500 ${authType === 'partner' ? 'bg-indigo-900' : 'bg-blue-900'}`}>
         <style>{`.btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); } .btn-cute:hover { transform: scale(1.05); }`}</style>
         <button onClick={() => setIsAuthView(false)} className="absolute top-6 left-6 text-white/50 hover:text-white font-bold transition hover:-translate-x-1">← กลับหน้าหลัก</button>
-        
-        {/* 📦 ปรับขนาดกล่อง: ถ้าสมัคร Partner ให้ขยายกว้าง (max-w-4xl) ถ้าหน้าอื่นให้เล็กเหมือนเดิม (max-w-md) */}
-        <div className={`bg-white rounded-3xl shadow-2xl w-full ${isPartnerRegister ? 'max-w-4xl flex flex-col md:flex-row overflow-hidden' : 'max-w-md p-8'} animate-[fadeIn_0.5s_ease-out]`}>
-          
-          {/* 🟠 แผงฝั่งซ้ายสีส้ม (โชว์เฉพาะหน้าสมัคร Partner) */}
-          {isPartnerRegister && (
-            <div className="bg-gradient-to-br from-orange-400 to-orange-600 md:w-5/12 p-8 md:p-10 text-white flex flex-col justify-between">
+
+        {/* 📦 ปรับขนาดกล่อง: ถ้าเป็น Partner ให้ขยายกว้าง (max-w-4xl) ถ้าหน้าอื่นให้เล็กเหมือนเดิม (max-w-md) */}
+        <div className={`bg-white rounded-3xl shadow-2xl w-full ${isPartnerAuth ? 'max-w-4xl flex flex-col md:flex-row overflow-hidden' : 'max-w-md p-8'} animate-[fadeIn_0.5s_ease-out]`}>
+
+          {/* 🟠 แผงฝั่งซ้ายสีส้ม (โชว์ตลอดเมื่อเป็นโหมด Partner) */}
+          {isPartnerAuth && (
+            <div className="bg-gradient-to-br from-orange-400 to-orange-600 md:w-5/12 p-8 md:p-10 text-white flex flex-col justify-between hidden md:flex">
               <div>
                 <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-3xl mb-8 shadow-sm backdrop-blur-sm">💰</div>
                 <h2 className="text-3xl font-black mb-4 leading-tight">สร้างรายได้<br/>ไปกับ Smart Label</h2>
@@ -1211,25 +1211,18 @@ const handleAuth = async (e) => {
             </div>
           )}
 
-          {/* ⚪ แผงฝั่งขวา (โซนฟอร์ม) */}
-          <div className={`${isPartnerRegister ? 'md:w-7/12 p-8 md:p-10 bg-white' : ''}`}>
-            
+          {/* ⚪ แผงฝั่งขวา (โซนฟอร์มล็อกอิน/สมัครสมาชิกแบบดั้งเดิม) */}
+          <div className={`${isPartnerAuth ? 'md:w-7/12 p-8 md:p-10 bg-white flex flex-col justify-center' : ''}`}>
+
             {/* Header ของฟอร์ม */}
-            {!isPartnerRegister ? (
-              <div className="text-center mb-6">
-                <h1 className={`text-4xl font-extrabold mb-2 flex justify-center items-center gap-2 ${authType === 'partner' ? 'text-indigo-600' : 'text-blue-800'}`}>
-                  {authType === 'partner' ? <><span className="animate-bounce inline-block">🤝</span> Partner</> : <><span className="animate-bounce inline-block">📦</span> SmartLabel</>}
-                </h1>
-                <p className="text-gray-500 font-bold">
-                  {authType === 'partner' ? (authMode === 'login' ? 'ระบบจัดการรายได้นักการตลาด' : 'สมัครเป็นพาร์ทเนอร์กับเรา') : (authMode === 'login' ? 'ยินดีต้อนรับกลับมา!' : 'เริ่มต้นความสำเร็จไปกับเรา')}
-                </p>
-              </div>
-            ) : (
-              <div className="mb-8 flex justify-between items-end border-b border-gray-100 pb-4">
-                <h2 className="text-2xl font-black text-gray-800">ลงทะเบียนพาร์ทเนอร์</h2>
-                <button type="button" onClick={() => setAuthMode('login')} className="text-sm font-bold text-gray-400 hover:text-orange-500 transition-colors">ย้อนกลับ</button>
-              </div>
-            )}
+            <div className="text-center mb-6">
+              <h1 className={`text-4xl font-extrabold mb-2 flex justify-center items-center gap-2 ${authType === 'partner' ? 'text-indigo-600' : 'text-blue-800'}`}>
+                {authType === 'partner' ? <><span className="animate-bounce inline-block">🤝</span> Partner</> : <><span className="animate-bounce inline-block">📦</span> SmartLabel</>}
+              </h1>
+              <p className="text-gray-500 font-bold">
+                {authType === 'partner' ? (authMode === 'login' ? 'ระบบจัดการรายได้นักการตลาด' : 'สมัครเป็นพาร์ทเนอร์กับเรา') : (authMode === 'login' ? 'ยินดีต้อนรับกลับมา!' : 'เริ่มต้นความสำเร็จไปกับเรา')}
+              </p>
+            </div>
 
             <form onSubmit={handleAuth}>
               {/* ฟอร์มร้านค้า (Merchant) */}
@@ -1240,93 +1233,69 @@ const handleAuth = async (e) => {
                 </div>
               )}
 
-              {/* ฟอร์มพาร์ทเนอร์ (จัด Grid เลียนแบบภาพ 100%) */}
-              {isPartnerRegister ? (
-                <>
-                  <div className="mb-4">
-                    <label className="block text-sm font-bold text-gray-700 mb-1">ชื่อ-นามสกุล *</label>
-                    <input name="partnerName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-orange-200 outline-none bg-gray-50 transition-all" placeholder="คุณสมชาย ใจดี" />
-                  </div>
-                  
-                  {/* แบ่งครึ่งเบอร์โทร กับ รหัสผ่าน */}
-                  <div className="grid grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1">เบอร์โทรศัพท์ (ID) *</label>
-                      <input name="phoneDummy" type="text" className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-orange-200 outline-none bg-gray-50 transition-all" placeholder="0887779851" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1">รหัสผ่านสำหรับ LOGIN *</label>
-                      <input name="password" type="password" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-orange-200 outline-none bg-gray-50 transition-all" placeholder="••••••••" />
-                    </div>
-                  </div>
-
-                  <div className="mb-4">
-                    <label className="block text-sm font-bold text-gray-700 mb-1">อีเมล *</label>
-                    <input name="email" type="email" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-orange-200 outline-none bg-gray-50 transition-all" placeholder="example@email.com" />
-                  </div>
-
-                  <div className="mb-8">
-                    <label className="block text-sm font-bold text-gray-700 mb-1">พร้อมเพย์ / เลขบัตรประชาชน (รับเงิน) *</label>
-                    <input name="promptpayDummy" type="text" className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-orange-200 outline-none bg-gray-50 transition-all" placeholder="เบอร์โทรหรือเลขบัตรประชาชน" />
-                  </div>
-                </>
-              ) : (
-                /* ฟอร์มมาตรฐานสำหรับหน้า Login ปกติ */
-                <>
-                  <div className="mb-4">
-                    <label className="block text-sm font-bold text-gray-700 mb-1">
-                      {authType === 'partner' ? 'อีเมลของคุณ (สำหรับรับค่าคอมมิชชัน)' : (authMode === 'login' ? 'อีเมล หรือ เบอร์โทรศัพท์' : 'อีเมลของคุณ')}
-                    </label>
-                    <input 
-                      name="email" 
-                      type="text" 
-                      required 
-                      className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`} 
-                      placeholder={authType === 'partner' ? "partner@mail.com" : (authMode === 'login' ? "เบอร์โทรศัพท์ หรือ อีเมล" : "owner@mail.com")} 
-                    />
-                  </div>
-
-                  <div className="mb-6">
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="block text-sm font-bold text-gray-700">รหัสผ่าน</label>
-                      {authMode === 'login' && (
-                        <button 
-                          type="button" 
-                          onClick={() => {
-                            const emailInput = document.querySelector('input[name="email"]');
-                            if (!emailInput || !emailInput.value || !emailInput.value.includes('@')) {
-                              alert("⚠️ กรุณากรอก 'อีเมล' ของคุณในช่องด้านบน แล้วคลิก 'ลืมรหัสผ่าน' อีกครั้งครับ");
-                              return;
-                            }
-                            import("firebase/auth").then(({ sendPasswordResetEmail }) => {
-                              sendPasswordResetEmail(auth, emailInput.value)
-                                .then(() => alert(`✅ ระบบได้ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่: ${emailInput.value} เรียบร้อยแล้วครับ!`))
-                                .catch(() => alert("❌ ไม่พบที่อยู่อีเมลนี้ในระบบ กรุณาตรวจสอบอีกครั้งครับ"));
-                            });
-                          }} 
-                          className={`text-xs font-bold hover:underline ${authType === 'partner' ? 'text-indigo-500' : 'text-blue-500'}`}
-                        >
-                          ลืมรหัสผ่าน?
-                        </button>
-                      )}
-                    </div>
-                    <input 
-                      name="password" 
-                      type="password" 
-                      required 
-                      className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`} 
-                      placeholder="••••••••" 
-                    />
-                  </div>
-                </>
+              {/* ฟอร์มพาร์ทเนอร์ (เอาเฉพาะชื่อ-นามสกุลมาโชว์ตอนสมัคร) */}
+              {authMode === 'register' && authType === 'partner' && (
+                <div className="mb-4">
+                  <label className="block text-sm font-bold text-gray-700 mb-1">ชื่อ-นามสกุล (พาร์ทเนอร์)</label>
+                  <input name="partnerName" type="text" required className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-indigo-200 outline-none bg-gray-50 transition-all" placeholder="เช่น นิชาภา สอนชา" />
+                </div>
               )}
 
-              {/* ปุ่ม Submit (เปลี่ยนสีตามหน้า) */}
-              <button type="submit" className={`btn-cute w-full text-white font-bold py-3.5 rounded-xl shadow-lg ${isPartnerRegister ? 'bg-orange-500 hover:bg-orange-600 hover:shadow-orange-500/50 text-base' : (authType === 'partner' ? 'bg-indigo-600 hover:shadow-indigo-500/50' : 'bg-blue-600 hover:shadow-blue-500/50')}`}>
-                {isPartnerRegister ? '🚀 สมัครพาร์ทเนอร์และเริ่มหาเงิน' : (authMode === 'login' ? 'เข้าสู่ระบบ' : '✨ สมัครสมาชิกฟรี')}
+              {/* 📧 ช่องกรอกอีเมล (ใช้ร่วมกันหมด) */}
+              <div className="mb-4">
+                <label className="block text-sm font-bold text-gray-700 mb-1">
+                  {authType === 'partner' ? 'อีเมลของคุณ (สำหรับรับค่าคอมมิชชัน)' : (authMode === 'login' ? 'อีเมล หรือ เบอร์โทรศัพท์' : 'อีเมลของคุณ')}
+                </label>
+                <input
+                  name="email"
+                  type="text"
+                  required
+                  className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`}
+                  placeholder={authType === 'partner' ? "partner@mail.com" : (authMode === 'login' ? "เบอร์โทรศัพท์ หรือ อีเมล" : "owner@mail.com")}
+                />
+              </div>
+
+              {/* 🔑 ช่องรหัสผ่าน พร้อมปุ่มลืมรหัสผ่าน */}
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-sm font-bold text-gray-700">รหัสผ่าน</label>
+                  {authMode === 'login' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const emailInput = document.querySelector('input[name="email"]');
+                        if (!emailInput || !emailInput.value || !emailInput.value.includes('@')) {
+                          alert("⚠️ กรุณากรอก 'อีเมล' ของคุณในช่องด้านบน แล้วคลิก 'ลืมรหัสผ่าน' อีกครั้งครับ");
+                          return;
+                        }
+                        import("firebase/auth").then(({ sendPasswordResetEmail }) => {
+                          sendPasswordResetEmail(auth, emailInput.value)
+                            .then(() => alert(`✅ ระบบได้ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่: ${emailInput.value} เรียบร้อยแล้วครับ!`))
+                            .catch(() => alert("❌ ไม่พบที่อยู่อีเมลนี้ในระบบ กรุณาตรวจสอบอีกครั้งครับ"));
+                        });
+                      }}
+                      className={`text-xs font-bold hover:underline ${authType === 'partner' ? 'text-indigo-500' : 'text-blue-500'}`}
+                    >
+                      ลืมรหัสผ่าน?
+                    </button>
+                  )}
+                </div>
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  className={`w-full border p-3 rounded-xl focus:ring-4 outline-none bg-gray-50 transition-all ${authType === 'partner' ? 'focus:ring-indigo-200' : 'focus:ring-blue-200'}`}
+                  placeholder="••••••••"
+                />
+              </div>
+
+              {/* ปุ่ม Submit */}
+              <button type="submit" className={`btn-cute w-full text-white font-bold py-3.5 rounded-xl shadow-lg ${authType === 'partner' ? 'bg-indigo-600 hover:shadow-indigo-500/50' : 'bg-blue-600 hover:shadow-blue-500/50'}`}>
+                {authMode === 'login' ? 'เข้าสู่ระบบ' : '✨ สมัครสมาชิกฟรี'}
               </button>
             </form>
 
+            {/* ส่วน Footer */}
             <div className="mt-6 text-center border-t border-gray-100 pt-6">
               {authMode === 'login' ? (
                 <p className="text-sm text-gray-600">
@@ -1334,10 +1303,10 @@ const handleAuth = async (e) => {
                 </p>
               ) : (
                 <p className="text-sm text-gray-600">
-                  {isPartnerRegister ? 'เป็นครอบครัวเดียวกับเราอยู่แล้ว?' : 'มีบัญชีอยู่แล้ว?'} <button onClick={() => setAuthMode('login')} className={`font-bold hover:underline ${isPartnerRegister ? 'text-orange-600' : (authType === 'partner' ? 'text-indigo-600' : 'text-blue-600')}`}>{isPartnerRegister ? 'เข้าสู่ระบบที่นี่' : 'เข้าสู่ระบบ'}</button>
+                  มีบัญชีอยู่แล้ว? <button onClick={() => setAuthMode('login')} className={`font-bold hover:underline ${authType === 'partner' ? 'text-indigo-600' : 'text-blue-600'}`}>เข้าสู่ระบบ</button>
                 </p>
               )}
-              {authType === 'partner' && !isPartnerRegister && (
+              {authType === 'partner' && (
                 <button type="button" onClick={() => { setAuthType('merchant'); setAuthMode('login'); }} className="mt-5 text-xs font-medium text-slate-400 hover:text-slate-600 underline">กลับหน้าล็อกอินร้านค้าปกติ</button>
               )}
             </div>
