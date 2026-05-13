@@ -129,6 +129,26 @@ export default function App() {
     navigator.clipboard.writeText(text);
     alert('คัดลอกลงคลิปบอร์ดแล้ว! นำไปวาง(Paste) ได้เลยครับ 📋');
   };
+
+  // 📦 ฟังก์ชันคัดลอกข้อความแจ้งเลขพัสดุให้ลูกค้า
+  const handleCopyTrackingMessage = (order) => {
+    const trackingNumber = trackingInputs[order.id];
+    
+    // ดักไว้ก่อน เผื่อแม่ค้าลืมกรอกเลขพัสดุ
+    if (!trackingNumber || trackingNumber.trim() === '') {
+      alert("⚠️ รบกวนกรอก 'เลขพัสดุ' ในช่องก่อนกดปุ่มคัดลอกนะครับท่าน CEO!");
+      return;
+    }
+
+    // ประกอบร่างข้อความสุดน่ารัก
+    const customerName = order.customerName !== 'ไม่ระบุชื่อ' ? order.customerName : 'ลูกค้าที่น่ารัก';
+    const message = `จัดส่งพัสดุเรียบร้อยนะคะ 📦✨\n\nคุณ ${customerName}\nเลขพัสดุ: ${trackingNumber}\n\nเช็คสถานะพัสดุได้ที่นี่เลยค่ะ 👇\nhttps://track.thailandpost.co.th\n\nขอบพระคุณที่อุดหนุน ${storeProfile.name || 'ร้านของเรา'} นะคะ 🙏💖`;
+
+    // ใช้ฟังก์ชัน copy ของท่าน CEO ที่มีอยู่แล้ว
+    copyToClipboard(message);
+    
+    // (ทางเลือก) ถ้าอนาคตอยากให้มันเซฟเลขพัสดุลง Firebase ด้วย สามารถเขียนโค้ดอัปเดตลง db ตรงนี้ได้เลยครับ
+  };
   
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('maker'); 
@@ -142,6 +162,7 @@ export default function App() {
 
   const [historyOrders, setHistoryOrders] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [trackingInputs, setTrackingInputs] = useState({}); // 🔥 เก็บเลขแทรคกิ้งชั่วคราวในตาราง (key คือ order.id)
   const [selectedDate, setSelectedDate] = useState(null); // 🔥 เก็บค่าว่ากำลังคลิกดูสถิติของวันไหน
   const [reprintOrder, setReprintOrder] = useState(null);
 
@@ -2046,55 +2067,74 @@ if (!user && isAuthView) {
                
                <div className="overflow-x-auto border border-slate-200 rounded-2xl">
                 <table className="w-full text-sm text-left">
-                   <thead className="bg-slate-50 uppercase text-xs font-black text-slate-500 tracking-wider border-b border-slate-200">
-                     <tr>
-                       <th className="py-4 px-6 whitespace-nowrap">วันที่ / เวลา</th>
-                       <th className="py-4 px-6 whitespace-nowrap">หมายเลขสิ่งของ</th>
-                       <th className="py-4 px-6 whitespace-nowrap">ชื่อผู้รับ (ลูกค้า)</th>
-                       <th className="py-4 px-6 min-w-[200px]">ที่อยู่จัดส่ง</th>
-                       <th className="py-4 px-6 whitespace-nowrap">คนทำรายการ</th>
-                       <th className="py-4 px-6 text-right whitespace-nowrap">ยอดเก็บเงิน (COD)</th>
-                       <th className="py-4 px-6 text-center whitespace-nowrap">จัดการ</th>
-                     </tr>
-                   </thead>
-                   <tbody>
-                     {filteredOrders.length === 0 ? (
-                        <tr><td colSpan="7" className="text-center py-16 text-slate-400 font-medium">ไม่พบข้อมูลที่ค้นหา หรือยังไม่มีออเดอร์ในวันนี้...</td></tr>
-                     ) : (
-                        filteredOrders.map((order, idx) => (
-                           <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
-                              <td className="py-4 px-6 text-slate-500 whitespace-nowrap">{order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '-'}</td>
-                              <td className="py-4 px-6 font-mono font-bold text-indigo-600 tracking-wider bg-indigo-50/30 whitespace-nowrap">REF-{order.id.slice(-6).toUpperCase()}</td>
-                              <td className="py-4 px-6 whitespace-nowrap">
-                                 <p className="font-bold text-slate-800 text-base">{order.customerName || 'ไม่ระบุชื่อ'}</p>
-                              </td>
-                              <td className="py-4 px-6">
-                                 <p className="text-slate-600 line-clamp-2 text-xs leading-relaxed mb-1" title={order.address}>{order.address}</p>
-                                 <span className="font-black text-slate-800 tracking-widest bg-slate-100 px-2 py-0.5 rounded text-xs">{order.zipcode}</span>
-                              </td>
-                              <td className="py-4 px-6 whitespace-nowrap text-xs font-bold text-slate-500">
-                                 👤 {order.creatorName || order.phone || 'Owner'}
-                              </td>
-                              <td className="py-4 px-6 text-right">
-                                 {order.isCOD 
-                                  ? <span className="font-black text-xl text-orange-600 bg-orange-50 px-4 py-1.5 rounded-xl border border-orange-100">฿{order.codAmount}</span> 
-                                  : <span className="font-black text-emerald-600 text-sm bg-emerald-50 px-4 py-1.5 rounded-xl border border-emerald-100">โอนเงินแล้ว</span>}
-                              </td>
-                              {/* 🖨️ ปุ่มสั่งพิมพ์ซ้ำ */}
-                              <td className="py-4 px-6 text-center">
+                  <thead className="bg-slate-50 uppercase text-xs font-black text-slate-500 tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="py-4 px-6 whitespace-nowrap">วันที่ / เวลา</th>
+                      <th className="py-4 px-6 whitespace-nowrap">หมายเลขสิ่งของ</th>
+                      <th className="py-4 px-6 whitespace-nowrap">ชื่อผู้รับ (ลูกค้า)</th>
+                      <th className="py-4 px-6 min-w-[200px]">ที่อยู่จัดส่ง</th>
+                      <th className="py-4 px-6 text-right whitespace-nowrap">ยอดเก็บเงิน (COD)</th>
+                      {/* 👈 คอลัมน์ใหม่: กรอกเลขพัสดุ */}
+                      <th className="py-4 px-6 text-center min-w-[250px]">แจ้งเลขพัสดุ</th> 
+                      <th className="py-4 px-6 text-center whitespace-nowrap">จัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredOrders.length === 0 ? (
+                      <tr><td colSpan="7" className="text-center py-16 text-slate-400 font-medium">ไม่พบข้อมูลที่ค้นหา หรือยังไม่มีออเดอร์ในวันนี้...</td></tr>
+                    ) : (
+                      filteredOrders.map((order, idx) => (
+                          <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
+                            <td className="py-4 px-6 text-slate-500 whitespace-nowrap">{order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '-'}</td>
+                            <td className="py-4 px-6 font-mono font-bold text-indigo-600 tracking-wider bg-indigo-50/30 whitespace-nowrap">REF-{order.id.slice(-6).toUpperCase()}</td>
+                            <td className="py-4 px-6 whitespace-nowrap">
+                                <p className="font-bold text-slate-800 text-base">{order.customerName || 'ไม่ระบุชื่อ'}</p>
+                                <p className="text-xs text-slate-500 mt-1">👤 {order.creatorName || order.phone || 'Owner'}</p> {/* ย้ายคนทำรายการมาไว้ใต้ชื่อลูกค้า ประหยัดพื้นที่ครับ */}
+                            </td>
+                            <td className="py-4 px-6">
+                                <p className="text-slate-600 line-clamp-2 text-xs leading-relaxed mb-1" title={order.address}>{order.address}</p>
+                                <span className="font-black text-slate-800 tracking-widest bg-slate-100 px-2 py-0.5 rounded text-xs">{order.zipcode}</span>
+                            </td>
+                            <td className="py-4 px-6 text-right">
+                                {order.isCOD 
+                                ? <span className="font-black text-xl text-orange-600 bg-orange-50 px-4 py-1.5 rounded-xl border border-orange-100">฿{order.codAmount}</span> 
+                                : <span className="font-black text-emerald-600 text-sm bg-emerald-50 px-4 py-1.5 rounded-xl border border-emerald-100">โอนเงินแล้ว</span>}
+                            </td>
+                            
+                            {/* 📦 โซนกรอกเลขพัสดุและก๊อปปี้ */}
+                            <td className="py-4 px-6">
+                              <div className="flex gap-2 items-center justify-center">
+                                <input 
+                                  type="text" 
+                                  placeholder="เช่น OA123456789TH" 
+                                  className="border border-slate-200 p-2 rounded-lg text-xs w-36 focus:ring-2 focus:ring-blue-300 outline-none uppercase font-mono"
+                                  value={trackingInputs[order.id] || ''}
+                                  onChange={(e) => setTrackingInputs({...trackingInputs, [order.id]: e.target.value.toUpperCase()})}
+                                />
                                 <button 
-                                  onClick={() => handleReprint(order)}
-                                  className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-600 hover:text-white transition-colors shadow-sm"
-                                  title="ดึงข้อมูลนี้กลับไปที่หน้าสร้างจ่าหน้า"
+                                  onClick={() => handleCopyTrackingMessage(order)}
+                                  className="bg-emerald-500 text-white p-2 rounded-lg text-xs font-bold hover:bg-emerald-600 transition-colors shadow-sm flex items-center justify-center"
+                                  title="คัดลอกข้อความแจ้งลูกค้า"
                                 >
-                                  🖨️ พิมพ์ซ้ำ
+                                  📋 ก๊อปปี้
                                 </button>
-                              </td>
-                           </tr>
-                        ))
-                     )}
-                   </tbody>
-                 </table>
+                              </div>
+                            </td>
+
+                            <td className="py-4 px-6 text-center">
+                              <button 
+                                onClick={() => handleReprint(order)}
+                                className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-600 hover:text-white transition-colors shadow-sm"
+                                title="ดึงข้อมูลนี้กลับไปที่หน้าสร้างจ่าหน้า"
+                              >
+                                🖨️ พิมพ์ซ้ำ
+                              </button>
+                            </td>
+                          </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
                </div>
             </div>
          </div>
