@@ -185,6 +185,14 @@ export default function App() {
   const [allChats, setAllChats] = useState([]); // เก็บแชททั้งหมด
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false); // เปิด/ปิด Pop-up
 
+  // 🚀 ฟังก์ชันจำลองการขอเลขพัสดุจากไปรษณีย์ไทย (Mock API)
+  const fetchMockTracking = async () => {
+    // จำลองว่ารอระบบไปรษณีย์ตอบกลับ 0.8 วินาที
+    await new Promise(resolve => setTimeout(resolve, 800)); 
+    const randomNum = Math.floor(100000000 + Math.random() * 900000000);
+    return `TH${randomNum}TH`; // เสกเลขออกมาเป็นรูปแบบไปรษณีย์ไทย
+  };
+
   // 📥 1. State สำหรับเก็บแชท (ใช้ชื่อ incomingChats ให้ตรงกับโค้ด UI ของท่าน CEO)
 
 
@@ -823,7 +831,7 @@ const handleAuth = async (e) => {
     };
 
   const handleSaveAndPrint = async () => {
-    // 1. กรองเอาเฉพาะออเดอร์ที่สมบูรณ์และยังไม่ได้เซฟ
+    // 1. กรองเอาเฉพาะออเดอร์ที่พร้อมเซฟ
     const readyToSaveOrders = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
     
     if (userRole === 'Owner' && readyToSaveOrders.length > quota) { 
@@ -833,29 +841,34 @@ const handleAuth = async (e) => {
 
     if (readyToSaveOrders.length > 0) {
       try {
-        // 2. เซฟข้อมูลลงฐานข้อมูลทีละรายการ
+        // สร้างอาเรย์ใหม่เพื่อเก็บออเดอร์ที่เติมเลขพัสดุแล้ว
+        const ordersWithTracking = [];
+
         for (const order of readyToSaveOrders) {
+          const autoTracking = await fetchMockTracking(); // 👈 เสกเลขพัสดุ
           const codNumber = order.parsedData.isCOD ? Number(order.parsedData.codAmount.replace(/,/g, '')) : 0;
           const staffName = user.email ? user.email.split('@')[0] : 'ไม่ระบุตัวตน';
 
+          // เซฟลงฐานข้อมูล
           await addDoc(collection(db, "orders"), {
+            ...order.parsedData, // กระจายข้อมูลที่ตัดคำไว้
             rawText: order.rawText, 
             adminEmail: user.email, 
             creatorName: staffName, 
             storeName: storeProfile.name || '', 
             customerName: order.parsedData.customerName || 'ไม่ระบุชื่อลูกค้า', 
-            phone: order.parsedData.phone || '', 
-            address: order.parsedData.address || '', 
-            zipcode: order.parsedData.zipcode || '', 
-            items: order.parsedData.items || '', 
-            isCOD: order.parsedData.isCOD, 
-            codAmount: codNumber, 
+            trackingNum: autoTracking, // ✅ บันทึกเลขพัสดุลง DB
             ownerId: userOwnerId, 
             createdAt: serverTimestamp() 
           });
+
+          // เก็บเลขพัสดุใส่ตัวแปรชั่วคราวเพื่อส่งไปที่หน้าปรินต์
+          ordersWithTracking.push({ ...order, trackingNum: autoTracking });
         }
 
-        // 3. หักโควต้าของ Owner
+        // 🚀 อัปเดต State หน้าจอ เพื่อให้เลขพัสดุโชว์บน "ใบจ่าหน้า" ทันที
+        setOrders(ordersWithTracking);
+
         if (userRole === 'Owner') {
           const userRef = doc(db, "users", user.uid);
           await updateDoc(userRef, { quota: increment(-readyToSaveOrders.length), usedQuota: increment(readyToSaveOrders.length) });
@@ -865,20 +878,16 @@ const handleAuth = async (e) => {
       } catch (error) { 
         console.error("Save Error:", error);
         alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ"); 
-        return; // ถ้าเซฟพัง ให้หยุดทำงาน ไม่ต้องปรินต์ ไม่ต้องล้างหน้าจอ
+        return;
       }
     }
 
-    // 🖨️ 4. สั่งเบราว์เซอร์ให้เปิดหน้าต่างปรินต์
-    window.print();
-
-    // 🧹 5. พิมพ์เสร็จแล้ว เคลียร์หน้าจอให้โล่งพร้อมรับงานใหม่!
-    // ล้างของเก่าออก แล้วสร้างกล่องเปล่า 1 ใบมารอรับลูกค้าคนต่อไป
-    setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
-    
-    // 💡 ทริคเสริม: ถ้าท่าน CEO มีตัวแปร state ที่ใช้เก็บค่าในช่องพิมพ์แชท (เช่น setInputText) 
-    // สามารถเอามาเรียกใช้ตรงนี้เพื่อล้างช่องพิมพ์แชทฝั่งซ้ายได้ด้วยครับ เช่น:
-    // setInputText(''); 
+    // 🕒 รอเสี้ยววินาทีให้ React วาดเลขพัสดุลงใบจ่าหน้าให้เสร็จก่อนสั่งพิมพ์
+    setTimeout(() => {
+      window.print();
+      // ล้างหน้าจอหลังพิมพ์เสร็จ
+      setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
+    }, 500);
   };
 
   // 🖨️ ฟังก์ชันสำหรับดึงข้อมูลเก่ากลับมาที่หน้า "สร้างจ่าหน้า"
@@ -2108,7 +2117,9 @@ if (!user && isAuthView) {
                                   type="text" 
                                   placeholder="เช่น OA123456789TH" 
                                   className="border border-slate-200 p-2 rounded-lg text-xs w-36 focus:ring-2 focus:ring-blue-300 outline-none uppercase font-mono"
-                                  value={trackingInputs[order.id] || ''}
+                                  // 👈 จุดที่ต้องแก้: ถ้าเรากำลังพิมพ์ ให้โชว์ค่าที่พิมพ์ (trackingInputs) 
+                                  // แต่ถ้าไม่ได้พิมพ์ ให้โชว์ค่าที่มาจากฐานข้อมูล (order.trackingNum)
+                                  value={trackingInputs[order.id] !== undefined ? trackingInputs[order.id] : (order.trackingNum || '')}
                                   onChange={(e) => setTrackingInputs({...trackingInputs, [order.id]: e.target.value.toUpperCase()})}
                                 />
                                 <button 
