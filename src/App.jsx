@@ -923,6 +923,56 @@ const handleAuth = async (e) => {
       return false;
     }
   };
+
+  // 📡 ฟังก์ชันเช็คสถานะจากไปรษณีย์ไทย
+const fetchTrackingStatus = async (trackingNum) => {
+  try {
+    const username = '22061'; // [cite: 1]
+    const password = 'RWJRlBbGkeMRTr7DSLGd9JGAaP0zjqPI'; // [cite: 1]
+    const authHeader = 'Basic ' + btoa(`${username}:${password}`); // [cite: 48]
+
+    // หมายเหตุ: URL นี้สำหรับดึงสถานะพัสดุ (Track & Trace)
+    const response = await fetch(`https://trackapi.thailandpost.co.th/post/api/v1/track`, {
+      method: 'POST',
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ "trackNumber": [trackingNum], "language": "TH" })
+    });
+
+    const result = await response.json();
+    // ดึงสถานะล่าสุด (เช่น รับฝาก, อยู่ระหว่างขนส่ง, นำจ่ายสำเร็จ) 
+    return result.response.items[trackingNum][0].status_description || 'Preloaded';
+  } catch (error) {
+    return 'Preloaded'; // ถ้าเช็คไม่ได้ให้คงสถานะเดิมไว้
+  }
+};
+
+const handleUpdateAllStatus = async () => {
+  setLoading(true);
+  try {
+    const updatedOrders = await Promise.all(historyOrders.map(async (order) => {
+      if (order.trackingNum && order.status !== 'นำจ่ายสำเร็จ') {
+        const newStatus = await fetchTrackingStatus(order.trackingNum);
+        
+        // อัปเดตลง Firestore ด้วยครับ
+        const orderRef = doc(db, "orders", order.id);
+        await updateDoc(orderRef, { status: newStatus });
+        
+        return { ...order, status: newStatus };
+      }
+      return order;
+    }));
+    
+    setHistoryOrders(updatedOrders);
+    alert("✅ อัปเดตสถานะพัสดุทั้งหมดเรียบร้อยครับท่านเจ้าสำนัก!");
+  } catch (error) {
+    console.error(error);
+  } finally {
+    setLoading(false);
+  }
+};
     
 const handleSaveAndPrint = async () => {
     const readyToSaveOrders = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
@@ -959,6 +1009,7 @@ const handleSaveAndPrint = async () => {
             storeName: storeProfile.name || '', 
             customerName: order.parsedData.customerName || 'ไม่ระบุชื่อลูกค้า', 
             trackingNum: autoTracking,
+            status: 'Preloaded',
             ownerId: userOwnerId, 
             createdAt: serverTimestamp() 
           });
@@ -2237,7 +2288,16 @@ if (!user && isAuthView) {
                       {/* 👈 คอลัมน์ใหม่: กรอกเลขพัสดุ */}
                       <th className="py-4 px-6 text-center min-w-[250px]">แจ้งเลขพัสดุ</th> 
                       <th className="py-4 px-6 text-center whitespace-nowrap">จัดการ</th>
-                      <th className="py-4 px-6 text-center whitespace-nowrap">สถานะพัสดุ</th>
+                      <th className="py-4 px-6 text-center whitespace-nowrap flex items-center justify-center gap-2">
+                        สถานะพัสดุ
+                        <button 
+                          onClick={handleUpdateAllStatus}
+                          className="p-1.5 bg-blue-500 text-white rounded-full hover:rotate-180 transition-all duration-500 shadow-sm"
+                          title="อัปเดตสถานะทั้งหมด"
+                        >
+                          🔄
+                        </button>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2296,29 +2356,26 @@ if (!user && isAuthView) {
                             <td className="py-4 px-6 text-center">
                               {order.trackingNum ? (
                                 <div className="flex flex-col items-center gap-1">
-                                  {/* 🚀 แสดงสถานะเป็น Badge สีสันสวยงาม */}
                                   <span className={`px-3 py-1 rounded-full text-[10px] font-black border ${
-                                    order.status === 'Delivered' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                                    order.status === 'In Transit' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                                    order.status === 'นำจ่ายสำเร็จ' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                                    order.status?.includes('ระหว่าง') ? 'bg-blue-50 text-blue-600 border-blue-100' : 
                                     'bg-slate-50 text-slate-500 border-slate-100'
                                   }`}>
-                                    {order.status === 'Delivered' ? '✅ ส่งสำเร็จ' : 
-                                    order.status === 'In Transit' ? '🚚 ระหว่างขนส่ง' : 
-                                    '📦 เตรียมการส่ง'}
+                                    {order.status === 'นำจ่ายสำเร็จ' ? '✅ ส่งสำเร็จ' : 
+                                    order.status?.includes('ระหว่าง') ? '🚚 กำลังขนส่ง' : 
+                                    order.status || '📦 เตรียมการส่ง'}
                                   </span>
-                                  
-                                  {/* 🔗 ปุ่มทางลัดเชื่อมไปยังระบบไปรษณีย์ไทยตามที่ท่านแนะนำ */}
                                   <a 
                                     href={`https://track.thailandpost.co.th/?trackNumber=${order.trackingNum}`}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="text-[9px] text-blue-400 hover:text-blue-600 underline font-bold transition-colors"
+                                    className="text-[9px] text-blue-400 hover:text-blue-600 underline font-bold"
                                   >
-                                    เช็คละเอียดที่ไปรษณีย์
+                                    ตรวจสอบละเอียด
                                   </a>
                                 </div>
                               ) : (
-                                <span className="text-slate-300 text-[10px]">รอออกเลข...</span>
+                                <span className="text-slate-300 text-[10px]">ยังไม่ออกเลข</span>
                               )}
                             </td>
                           </tr>
