@@ -1244,118 +1244,159 @@ const handleSaveAndPrint = async () => {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-100 font-bold text-blue-600 animate-pulse">กำลังโหลดระบบ...</div>;
 
-  if (!user && !isAuthView) {
-      return (
-        <div className="min-h-screen bg-white font-sans text-gray-900 selection:bg-blue-200">
-          <style>{`@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } } .animate-float { animation: float 3s ease-in-out infinite; } .btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); } .btn-cute:hover { transform: scale(1.05) translateY(-2px); box-shadow: 0 10px 20px -10px rgba(59, 130, 246, 0.5); } .card-hover { transition: transform 0.3s ease, box-shadow 0.3s ease; } .card-hover:hover { transform: translateY(-5px); box-shadow: 0 20px 30px -10px rgba(0,0,0,0.1); }`}</style>
-          
-          <nav className="flex justify-between items-center px-6 py-4 border-b">
-            <div className="text-2xl font-black text-blue-800 flex items-center gap-2"><span className="animate-float inline-block">📦</span> SmartLabel</div>
-            <div className="flex gap-4">
-              <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-indigo-500 font-bold hover:underline flex items-center gap-1 hidden md:flex"><span>🤝</span> ร่วมเป็นพาร์ทเนอร์</button>
-              <button onClick={() => setIsAuthView(true)} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-full font-bold">เข้าสู่ระบบ</button>
+if (!user && !isAuthView) {
+    return (
+      <div className="min-h-screen bg-white font-sans text-gray-900 selection:bg-blue-200 overflow-x-hidden">
+        <style>{`
+          @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+          .animate-float { animation: float 3s ease-in-out infinite; }
+          .btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+          .btn-cute:hover { transform: scale(1.05) translateY(-2px); box-shadow: 0 15px 30px -10px rgba(59, 130, 246, 0.5); }
+          .card-hover { transition: all 0.4s ease; }
+          .card-hover:hover { transform: translateY(-8px); shadow: 0 25px 50px -12px rgba(0,0,0,0.1); }
+          .bg-grid { background-image: radial-gradient(#e5e7eb 1px, transparent 1px); background-size: 20px 20px; }
+        `}</style>
+        
+        {/* 🧭 Navbar */}
+        <nav className="flex justify-between items-center px-6 md:px-12 py-6 border-b bg-white/80 backdrop-blur-md sticky top-0 z-50">
+          <div className="text-2xl font-black text-blue-800 flex items-center gap-2">
+            <span className="animate-float inline-block">📦</span> SmartLabel
+          </div>
+          <div className="flex gap-4 items-center">
+            <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-slate-500 font-bold hover:text-blue-600 transition-colors hidden lg:block">🤝 Partner Program</button>
+            <div className="h-6 w-px bg-slate-200 hidden lg:block"></div>
+            <button onClick={() => setIsAuthView(true)} className="btn-cute bg-white text-blue-600 border-2 border-blue-600 px-6 py-2 rounded-xl font-bold">เข้าสู่ระบบ</button>
+            <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg shadow-blue-500/30">สมัครฟรี</button>
+          </div>
+        </nav>
+        
+        {/* 🚀 Hero Section */}
+        <header className="px-6 py-24 text-center bg-grid relative">
+          <div className="absolute inset-0 bg-gradient-to-b from-blue-50/50 to-white -z-10"></div>
+          <div className="inline-block px-4 py-1.5 mb-6 bg-blue-100 text-blue-700 rounded-full text-sm font-black tracking-widest uppercase animate-pulse">
+            🚀 ใหม่! เชื่อมต่อ API ไปรษณีย์ไทยโดยตรง
+          </div>
+          <h1 className="text-5xl md:text-8xl font-black text-slate-900 mb-8 leading-[1.1] tracking-tight">
+            จบงานจ่าหน้า <br/> <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">อัตโนมัติ 100%</span>
+          </h1>
+          <p className="text-xl text-slate-500 mb-12 max-w-3xl mx-auto leading-relaxed">
+            ระบบแรกที่เชื่อมต่อกับ **ไปรษณีย์ไทย (PostOne)** โดยตรง [cite: 48, 77] ออกเลขพัสดุจริงทันที 
+            ไม่ต้องเสียเวลาส่งไฟล์ CSV หรือแจ้งเลขมือถืออีกต่อไป เพื่อแม่ค้าออนไลน์มือโปร
+          </p>
+          <div className="flex flex-col md:flex-row gap-4 justify-center items-center">
+            <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white text-xl px-12 py-5 rounded-2xl font-black shadow-2xl">เริ่มทดลองใช้ฟรี 50 ใบ</button>
+            <div className="text-slate-400 font-medium flex items-center gap-2">
+              <span>⭐️ ไม่ต้องผูกบัตรเครดิต</span>
+              <span className="text-slate-200">|</span>
+              <span>⚡️ เริ่มใช้งานได้ใน 1 นาที</span>
             </div>
-          </nav>
-          
-          <header className="px-6 py-20 text-center bg-gradient-to-b from-blue-50 to-white">
-            <h1 className="text-5xl md:text-7xl font-black text-blue-900 mb-6 leading-tight hover:scale-[1.01] transition-transform">จ่าหน้าพัสดุไวขึ้น 10 เท่า <br/> <span className="text-blue-600">ด้วยสมองกลอัจฉริยะ</span></h1>
-            <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">สกัดชื่อที่อยู่จากแชทลูกค้าอัตโนมัติ พร้อมระบบจดจำลูกค้าเก่า (CRM) และสถิติครบวงจร เพื่อแม่ค้าออนไลน์มือโปรเช่นคุณ</p>
-            {/* เปลี่ยนเป็นแจกฟรี 50 ใบ ใจป้ำๆ ครับ */}
-            <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white text-xl px-12 py-4 rounded-full font-black shadow-xl animate-bounce mt-4">เริ่มทดลองใช้ฟรี 50 ใบ</button>
-          </header>
-          
-          <section className="py-20 px-6 max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12">
-            <div className="text-center group">
-              <div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-12 transition-transform duration-300 inline-block">🧠</div>
-              <h3 className="text-xl font-bold mb-2">Smart CRM</h3>
-              <p className="text-gray-500">พิมพ์แค่เบอร์โทร ข้อมูลชื่อและที่อยู่ลูกค้าเก่าเด้งขึ้นมาให้ทันที</p>
-            </div>
-            <div className="text-center group">
-              <div className="text-6xl mb-4 group-hover:scale-125 group-hover:-translate-y-2 transition-transform duration-300 inline-block">🖨️</div>
-              <h3 className="text-xl font-bold mb-2">Thermal Ready</h3>
-              <p className="text-gray-500">ออกแบบมาเพื่อเครื่องพิมพ์ความร้อน พิมพ์ออกมาสวยเป๊ะทุกใบ</p>
-            </div>
-            <div className="text-center group">
-              <div className="text-6xl mb-4 group-hover:scale-125 group-hover:rotate-[-12deg] transition-transform duration-300 inline-block">📊</div>
-              <h3 className="text-xl font-bold mb-2">Dashboard & Export</h3>
-              <p className="text-gray-500">ดูยอดส่งรายวัน และดาวน์โหลดข้อมูลเป็น Excel ได้ในคลิกเดียว</p>
-            </div>
-          </section>
-          
-          <section className="py-24 bg-slate-50 border-t border-slate-100">
-            <div className="max-w-6xl mx-auto px-6 text-center">
-              <h2 className="text-4xl font-black mb-12 text-slate-800">ราคาแพ็กเกจที่คุณเลือกได้</h2>
-              {/* ปรับ Grid เป็น 3 คอลัมน์ สำหรับ 3 แพ็กเกจ */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
-                
-                {/* แพ็กเกจ 50 บาท */}
-                <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-200 card-hover flex flex-col justify-between">
-                  <div>
-                    <p className="text-slate-500 font-bold mb-4 tracking-widest uppercase text-sm">เริ่มต้นเบาๆ</p>
-                    <p className="text-5xl font-black mb-4 text-slate-800">฿50</p>
-                    <p className="text-slate-500 mb-6 font-medium">ได้รับ 100 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.5 บาท/ใบ)</span></p>
-                    <ul className="text-sm text-slate-600 mb-8 space-y-3">
-                      <li className="flex items-center gap-2">✅ ใช้งานระบบจ่าหน้าปกติ</li>
-                      <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
-                      <li className="flex items-center gap-2 opacity-40">❌ ระบบดูดแชท Facebook</li>
-                      <li className="flex items-center gap-2 opacity-40">❌ AI สกัดที่อยู่อัตโนมัติ</li>
-                    </ul>
-                  </div>
-                  <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-3 rounded-xl border-2 border-slate-300 text-slate-600 font-bold hover:bg-slate-50">เริ่มต้นใช้งาน</button>
-                </div>
+          </div>
+        </header>
+        
+        {/* 🌟 Features Showcase */}
+        <section className="py-24 px-6 max-w-7xl mx-auto">
+          <div className="text-center mb-20">
+            <h2 className="text-3xl md:text-5xl font-black text-slate-800 mb-4">ฟังก์ชันที่ทำให้เรา "เหนือกว่า"</h2>
+            <div className="h-1.5 w-24 bg-blue-500 mx-auto rounded-full"></div>
+          </div>
 
-                {/* แพ็กเกจ 200 บาท */}
-                <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-200 card-hover flex flex-col justify-between">
-                  <div>
-                    <p className="text-blue-600 font-bold mb-4 tracking-widest uppercase text-sm">ขายดี</p>
-                    <p className="text-5xl font-black mb-4 text-slate-800">฿200</p>
-                    <p className="text-slate-500 mb-6 font-medium">ได้รับ 500 จ่าหน้า <br/> <span className="text-sm">(เพียง 0.4 บาท/ใบ)</span></p>
-                    <ul className="text-sm text-slate-600 mb-8 space-y-3">
-                      <li className="flex items-center gap-2">✅ ใช้งานระบบจ่าหน้าปกติ</li>
-                      <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
-                      <li className="flex items-center gap-2 opacity-40">❌ ระบบดูดแชท Facebook</li>
-                      <li className="flex items-center gap-2 opacity-40">❌ AI สกัดที่อยู่อัตโนมัติ</li>
-                    </ul>
-                  </div>
-                  <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-3 rounded-xl border-2 border-blue-600 text-blue-600 font-bold hover:bg-blue-50">เลือกแพ็กเกจนี้</button>
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm card-hover">
+              <div className="text-4xl mb-4">📡</div>
+              <h3 className="text-xl font-black mb-3">Direct THP API</h3>
+              <p className="text-slate-500 text-sm leading-relaxed">เชื่อมระบบไปรษณีย์ไทย ออกเลขพัสดุ (EMS/Reg) ของจริงได้ทันทีจากหน้าเว็บ [cite: 215, 232]</p>
+            </div>
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm card-hover">
+              <div className="text-4xl mb-4">🤖</div>
+              <h3 className="text-xl font-black mb-3">Auto Preload</h3>
+              <p className="text-slate-500 text-sm leading-relaxed">ส่งข้อมูลผู้รับ-ผู้ส่งเข้าระบบไปรษณีย์อัตโนมัติ ไม่ต้อง Upload ไฟล์ CSV เองให้ยุ่งยาก [cite: 503, 606]</p>
+            </div>
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm card-hover">
+              <div className="text-4xl mb-4">🔄</div>
+              <h3 className="text-xl font-black mb-3">Status Tracking</h3>
+              <p className="text-slate-500 text-sm leading-relaxed">ระบบอัปเดตสถานะพัสดุทุก 4 ชั่วโมง แจ้งเตือนเมื่อของถึงมือลูกค้า</p>
+            </div>
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm card-hover">
+              <div className="text-4xl mb-4">📋</div>
+              <h3 className="text-xl font-black mb-3">1-Click Copy</h3>
+              <p className="text-slate-500 text-sm leading-relaxed">ก๊อปปี้ข้อความแจ้งเลขพัสดุ พร้อมลิงก์เช็คสถานะ ตอบแชทลูกค้าได้ในคลิกเดียว</p>
+            </div>
+          </div>
+        </section>
 
-                {/* 🔥 แพ็กเกจพรีเมียม 1,000 บาท (พระเอกของเรา) */}
-                <div className="bg-gradient-to-b from-indigo-50 to-white p-8 rounded-3xl shadow-2xl border-4 border-indigo-600 relative overflow-hidden card-hover transform md:-translate-y-4 flex flex-col justify-between">
-                  <div className="absolute top-0 right-0 bg-indigo-600 text-white px-6 py-2 font-black text-sm rounded-bl-2xl shadow-sm tracking-widest">พรีเมียม 💎</div>
-                  <div>
-                    <p className="text-indigo-600 font-bold mb-4 tracking-widest uppercase text-sm">คุ้มค่าที่สุด</p>
-                    <div className="flex items-end gap-1 mb-4">
-                      <p className="text-5xl font-black text-slate-800">฿1,000</p>
-                      {/*<p className="text-lg text-slate-500 font-bold mb-1">/เดือน</p>*/}
-                    </div>
-                    <p className="text-slate-500 mb-6 font-medium">ได้รับ 10,000 จ่าหน้า 30 วัน(สะสมวันได้) <br/> <span className="text-sm">(คุ้มสุดๆ เพียง 0.10 บาท/ใบ)</span></p>
-                    <ul className="text-sm text-indigo-900 mb-8 space-y-3 font-bold">
-                      <li className="flex items-center gap-2">✨ ระบบดูดแชทเพจ Facebook</li>
-                      <li className="flex items-center gap-2">⚡ AI สกัดที่อยู่อัตโนมัติ</li>
-                      <li className="flex items-center gap-2">✅ ใช้งานระบบจ่าหน้าปกติ</li>
-                      <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
-                    </ul>
-                  </div>
-                  <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-xl bg-indigo-600 text-white font-black shadow-lg shadow-indigo-500/40">อัปเกรดเป็น Premium</button>
+        {/* 💳 Pricing Section (Refined) */}
+        <section className="py-24 bg-slate-50 border-y border-slate-100">
+          <div className="max-w-6xl mx-auto px-6 text-center">
+            <h2 className="text-4xl font-black mb-4 text-slate-800">แพ็กเกจที่คุ้มค่าที่สุดในตลาด</h2>
+            <p className="text-slate-500 mb-16">ประหยัดเวลาแอดมินวันละหลายชั่วโมง ในราคาเริ่มต้นเพียงหลักสิบ</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
+              {/* แพ็กเกจ 50 บาท */}
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200 card-hover flex flex-col">
+                <div className="mb-8">
+                  <p className="text-blue-500 font-black mb-2 tracking-widest uppercase text-xs">Standard</p>
+                  <p className="text-5xl font-black mb-2 text-slate-800">฿50</p>
+                  <p className="text-slate-400 text-sm">ได้รับ 100 จ่าหน้า (0.5 บ./ใบ)</p>
                 </div>
-
+                <ul className="text-sm text-slate-600 mb-10 space-y-4 flex-grow">
+                  <li className="flex items-center gap-2">✅ ระบบสกัดที่อยู่จากแชท</li>
+                  <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
+                  <li className="flex items-center gap-2">✅ ออกเลขพัสดุจำลอง (Mock)</li>
+                </ul>
+                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-2xl border-2 border-slate-200 text-slate-600 font-bold hover:bg-slate-50">เริ่มใช้งาน</button>
               </div>
-              
-              {/* ป้ายประกาศสำหรับขาใหญ่ 
-              <div className="mt-16 text-slate-500 font-medium bg-white p-6 rounded-2xl shadow-sm border border-slate-200 inline-block">
-                🚀 ส่งมากกว่า 10,000 ชิ้น/เดือน? เตรียมพบกับแพ็กเกจ <span className="font-black text-slate-800">Ultimate</span> เร็วๆ นี้! <button className="text-indigo-600 font-bold hover:underline ml-2">ติดต่อทีมงานเพื่อจองคิว</button>
-              </div>*/}
+
+              {/* 🔥 แพ็กเกจพรีเมียม (พระเอก) */}
+              <div className="bg-slate-900 p-8 rounded-[2.5rem] shadow-2xl border-4 border-blue-500 relative overflow-hidden card-hover transform md:-translate-y-6 flex flex-col text-white">
+                <div className="absolute top-0 right-0 bg-blue-500 text-white px-6 py-2 font-black text-xs rounded-bl-2xl uppercase tracking-widest">Recommended</div>
+                <div className="mb-8">
+                  <p className="text-blue-400 font-black mb-2 tracking-widest uppercase text-xs">Ultimate Automation</p>
+                  <p className="text-6xl font-black mb-2 text-white">฿1,000</p>
+                  <p className="text-slate-400 text-sm font-medium">ได้รับ 10,000 จ่าหน้า (0.1 บ./ใบ)</p>
+                </div>
+                <ul className="text-sm text-slate-200 mb-10 space-y-4 flex-grow">
+                  <li className="flex items-center gap-3">🚀 <span className="font-bold text-blue-300">เชื่อม API ไปรษณีย์ไทยของจริง</span></li>
+                  <li className="flex items-center gap-3">🤖 <span className="font-bold text-blue-300">ระบบส่งข้อมูล Preload อัตโนมัติ</span></li>
+                  <li className="flex items-center gap-3">🔄 <span className="font-bold text-blue-300">อัปเดตสถานะพัสดุทุก 4 ชม.</span></li>
+                  <li className="flex items-center gap-3">✨ ดูดแชท Facebook Page</li>
+                  <li className="flex items-center gap-3">✅ ระบบ CRM & Dashboard ครบชุด</li>
+                </ul>
+                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-5 rounded-2xl bg-blue-600 text-white font-black shadow-xl shadow-blue-500/40">อัปเกรดเป็นระดับโปร</button>
+              </div>
+
+              {/* แพ็กเกจ 200 บาท */}
+              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200 card-hover flex flex-col">
+                <div className="mb-8">
+                  <p className="text-blue-500 font-black mb-2 tracking-widest uppercase text-xs">Popular</p>
+                  <p className="text-5xl font-black mb-2 text-slate-800">฿200</p>
+                  <p className="text-slate-400 text-sm">ได้รับ 500 จ่าหน้า (0.4 บ./ใบ)</p>
+                </div>
+                <ul className="text-sm text-slate-600 mb-10 space-y-4 flex-grow">
+                  <li className="flex items-center gap-2">✅ ระบบสกัดที่อยู่จากแชท</li>
+                  <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
+                  <li className="flex items-center gap-2">✅ ระบบ Export ไฟล์ Excel</li>
+                </ul>
+                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-2xl border-2 border-blue-600 text-blue-600 font-bold hover:bg-blue-50">เลือกแพ็กเกจนี้</button>
+              </div>
             </div>
-          </section>
-          
-          <footer className="py-12 bg-white border-t border-slate-100 flex flex-col items-center gap-4 text-slate-400 text-sm font-medium">
-            <p>© 2026 ToppySmart Logistics. พัฒนาโดยพาร์ทเนอร์ & CTO Copilot</p>
-            <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-indigo-500 font-bold hover:underline flex items-center gap-1">🤝 ระบบจัดการรายได้สำหรับนักการตลาด (Partner Login)</button>
-          </footer>
-        </div>
-      );
-    }
+          </div>
+        </section>
+
+        {/* 👣 Footer */}
+        <footer className="py-20 bg-white border-t border-slate-100 px-6">
+          <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
+            <div className="text-center md:text-left">
+              <div className="text-2xl font-black text-blue-800 mb-2">SmartLabel</div>
+              <p className="text-slate-400 text-sm">© 2026 ToppySmart Logistics. <br/>พัฒนาร่วมกับ CTO Copilot - จังหวัดพระนครศรีอยุธยา</p>
+            </div>
+            <div className="flex gap-8">
+               <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-blue-600 font-black hover:underline flex items-center gap-2">🤝 Partner Login</button>
+            </div>
+          </div>
+        </footer>
+      </div>
+    );
+  }
 
 if (!user && isAuthView) {
     // 💡 เปลี่ยนเงื่อนไข: ถ้าเข้ามาโหมด "พาร์ทเนอร์" (ทั้งล็อกอินและลงทะเบียน) จะกางเป็น 2 คอลัมน์
