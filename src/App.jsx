@@ -1355,7 +1355,7 @@ if (!user && !isAuthView) {
           <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
             <div className="text-center md:text-left">
               <div className="text-2xl font-black text-blue-800 mb-2">SmartLabel</div>
-              <p className="text-slate-400 text-sm">© 2026 ToppySmart Logistics. <br/>พัฒนาร่วมกับ CTO Copilot - จังหวัดพระนครศรีอยุธยา</p>
+              <p className="text-slate-400 text-sm">© 2026 ToppySmart Logistics. <br/>พัฒนาร่วมกับ CTO Copilot</p>
             </div>
             <div className="flex gap-8">
                <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-blue-600 font-black hover:underline flex items-center gap-2">🤝 Partner Login</button>
