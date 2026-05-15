@@ -975,103 +975,71 @@ const handleUpdateAllStatus = async () => {
 };
     
 const handleSaveAndPrint = async () => {
-    const readyToSaveOrders = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
+    // 🔍 กรองเฉพาะออเดอร์ "ใหม่" ที่ยังไม่เคยเซฟ (isSaved เป็น false)
+    const newOrdersToSave = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
     
-    if (userRole === 'Owner' && readyToSaveOrders.length > quota) { 
-        setIsTopupOpen(true); 
-        return; 
-    }
+    // ... ส่วนเช็คโควต้า ...
 
-    if (readyToSaveOrders.length > 0) {
+    if (newOrdersToSave.length > 0) {
       try {
-        // ✨ จุดที่เพิ่ม 1: ขอ Token ก่อนเริ่มทำงาน (ขอครั้งเดียวใช้ได้ทั้งลูป)
         const thpToken = await getTHPToken();
-        const ordersWithTracking = [];
+        const processedOrders = [];
 
-        for (const order of readyToSaveOrders) {
-          // 📡 ขอเลขพัสดุจริง (EMS)
-          const autoTracking = await fetchRealTrackingFromTHP('1'); 
-          
-          // ✨ จุดที่เพิ่ม 2: ถ้าได้ Token มา ให้ส่งข้อมูลผู้รับ-ผู้ส่งเข้าระบบทันที (Preload)
-          if (thpToken && autoTracking) {
-            await preloadOrderToTHP(thpToken, order, autoTracking);
+        for (const order of orders) {
+          // ✨ ดำเนินการเฉพาะงานใหม่ที่ยังไม่มีเลขพัสดุ
+          if (!order.isSaved && !order.trackingNum) {
+            const autoTracking = await fetchRealTrackingFromTHP('1'); 
+            
+            if (thpToken && autoTracking) {
+              await preloadOrderToTHP(thpToken, order, autoTracking);
+            }
+
+            // บันทึกลงฐานข้อมูล
+            await addDoc(collection(db, "orders"), {
+              ...order.parsedData,
+              trackingNum: autoTracking,
+              status: 'Preloaded',
+              // ... ข้อมูลอื่นๆ ...
+            });
+
+            processedOrders.push({ ...order, trackingNum: autoTracking, isSaved: true });
+          } else {
+            // 🔄 งานพิมพ์ซ้ำ (isSaved: true) ให้เก็บไว้พิมพ์อย่างเดียว ไม่ทำอะไรเพิ่ม
+            processedOrders.push(order);
           }
-
-          const codNumber = order.parsedData.isCOD ? Number(order.parsedData.codAmount.replace(/,/g, '')) : 0;
-          const staffName = user.email ? user.email.split('@')[0] : 'ไม่ระบุตัวตน';
-
-          // บันทึกลงฐานข้อมูลเดิมของเรา
-          await addDoc(collection(db, "orders"), {
-            ...order.parsedData,
-            rawText: order.rawText, 
-            adminEmail: user.email, 
-            creatorName: staffName, 
-            storeName: storeProfile.name || '', 
-            customerName: order.parsedData.customerName || 'ไม่ระบุชื่อลูกค้า', 
-            trackingNum: autoTracking,
-            status: 'Preloaded',
-            ownerId: userOwnerId, 
-            createdAt: serverTimestamp() 
-          });
-
-          ordersWithTracking.push({ ...order, trackingNum: autoTracking });
         }
+        setOrders(processedOrders);
 
-        setOrders(ordersWithTracking);
-
+        // 💰 ตัดเครดิตเฉพาะจำนวนงานใหม่ (newOrdersToSave.length)
         if (userRole === 'Owner') {
           const userRef = doc(db, "users", user.uid);
-          await updateDoc(userRef, { quota: increment(-readyToSaveOrders.length), usedQuota: increment(readyToSaveOrders.length) });
-          setQuota(prev => prev - readyToSaveOrders.length);
+          await updateDoc(userRef, { 
+            quota: increment(-newOrdersToSave.length), 
+            usedQuota: increment(newOrdersToSave.length) 
+          });
         }
-        
-      } catch (error) { 
-        console.error("Workflow Error:", error);
-        alert("เกิดข้อผิดพลาดในระบบเชื่อมต่อครับ"); 
-        return;
-      }
+      } catch (error) { /* handle error */ }
     }
 
     setTimeout(() => {
       window.print();
       setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
-    }, 1000); // เพิ่มเวลาเป็น 1 วินาที เพื่อให้ระบบมั่นใจว่า Preload ข้อมูลเสร็จก่อนปรินต์ครับ
+    }, 1000);
   };
 
-  // 🖨️ ฟังก์ชันสำหรับดึงข้อมูลเก่ากลับมาที่หน้า "สร้างจ่าหน้า"
+// 🖨️ ฟังก์ชันพิมพ์ซ้ำ (Reprint) - ใช้ข้อมูลเดิม ไม่ขอเลขใหม่
   const handleReprint = (oldOrder) => {
-    if (!oldOrder) return;
-
-    // 🛡️ ฟังก์ชันผู้พิทักษ์: บังคับทุกอย่างให้เป็น String เสมอ ป้องกันหน้าจอขาว
-    const safeStr = (val) => (val ? String(val) : '');
-
-    const recoveredData = {
-      customerName: (oldOrder.customerName && oldOrder.customerName !== 'ไม่ระบุชื่อลูกค้า') ? safeStr(oldOrder.customerName) : '',
-      phone: safeStr(oldOrder.phone),
-      address: safeStr(oldOrder.address),
-      zipcode: safeStr(oldOrder.zipcode),
-      province: '', 
-      district: '', 
-      subdistrict: '', 
-      items: Array.isArray(oldOrder.items) ? oldOrder.items : [], 
-      isCOD: Boolean(oldOrder.isCOD),
-      codAmount: oldOrder.isCOD ? safeStr(oldOrder.codAmount) : '',
-      warnings: [] // 👈 พระเอกขี่ม้าขาว! เติมตะกร้าคำเตือนเปล่าๆ เข้าไป ระบบจะได้หา .length เจอครับ!
-    };
-
-    // ส่งข้อมูลกลับไปที่กล่องสร้างจ่าหน้า
-    setOrders([{ 
-      id: Date.now(), 
-      rawText: safeStr(oldOrder.rawText), 
-      parsedData: recoveredData, 
-      isSaved: false,
-      crmSuggestion: null 
+    setOrders([{
+      ...oldOrder,
+      id: oldOrder.id, 
+      rawText: oldOrder.rawText || '',
+      parsedData: { ...oldOrder }, 
+      isSaved: true, // ✅ มาร์คว่าบันทึกแล้ว (สำคัญมาก)
+      trackingNum: oldOrder.trackingNum // ✅ ดึงเลขพัสดุเดิมมาใช้
     }]);
-
-    // เด้งกลับไปที่แท็บ 'maker'
-    setActiveTab('maker'); 
     
-    // ไม่ต้องมี alert แล้วก็ได้ครับ จะได้สไลด์ปรู๊ดไปเลยแบบสมูทๆ
+    // เลื่อนหน้าจอขึ้นไปส่วนบน
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleEditHistory = (order) => { setOrders([{ id: Date.now(), rawText: order.rawText || '', parsedData: extractOrderData(order.rawText || ''), isSaved: false, crmSuggestion: null }, { id: Date.now() + 1, rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }]); setActiveTab('maker'); window.scrollTo(0, 0); };
