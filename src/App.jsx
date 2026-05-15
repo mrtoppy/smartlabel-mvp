@@ -1055,33 +1055,52 @@ const handleSaveAndPrint = async () => {
   const handleEditHistory = (order) => { setOrders([{ id: Date.now(), rawText: order.rawText || '', parsedData: extractOrderData(order.rawText || ''), isSaved: false, crmSuggestion: null }, { id: Date.now() + 1, rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }]); setActiveTab('maker'); window.scrollTo(0, 0); };
   const handleReprintHistory = (order) => { setReprintOrder(order); setTimeout(() => { window.print(); setReprintOrder(null); }, 300); };
   
-// 🔥 ระบบกรองข้อมูลอัจฉริยะ (กรองตามวันที่คลิก และ คำค้นหา)
+// 🔥 ระบบกรองข้อมูลอัจฉริยะ (กรองตามวันที่คลิกกราฟ + คำค้นหา Tracking/วันที่)
   const filteredOrders = historyOrders.filter(order => {
-    // 1. กรองตามวันที่กดจากกราฟแท่ง
+    
+    // 1. 📅 กรองตามวันที่กดจากกราฟแท่ง (ถ้ามีการเลือก)
     if (selectedDate) {
       const orderDate = order.createdAt?.toDate().toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
       if (orderDate !== selectedDate) return false;
     }
-    // 2. กรองตามช่องค้นหา (ชื่อ, เบอร์, ปณ, Tracking)
+
+    // 2. 🔍 กรองตามช่องค้นหา (ชื่อ, เบอร์, ปณ, REF, และเพิ่ม Tracking/วันที่)
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
+      
+      // เตรียมข้อมูลสำหรับการค้นหา
       const trackRef = `REF-${order.id.slice(-6).toUpperCase()}`.toLowerCase();
+      const tracking = (order.trackingNum || '').toLowerCase(); // ดึงเลขพัสดุจริงมาเช็ค
+      
+      // สร้างรูปแบบวันที่สำหรับค้นหา เช่น "15/5/69"
+      const dateForSearch = order.createdAt 
+        ? order.createdAt.toDate().toLocaleDateString('th-TH', { day: 'numeric', month: 'numeric', year: '2-digit' }) 
+        : '';
+
       return (
         (order.customerName || '').toLowerCase().includes(q) ||
         (order.phone || '').includes(q) ||
         (order.zipcode || '').includes(q) ||
-        trackRef.includes(q)
+        trackRef.includes(q) ||
+        tracking.includes(q) ||      // ✅ เพิ่มการค้นหาด้วยเลขพัสดุ (เช่น ED...)
+        dateForSearch.includes(q)     // ✅ เพิ่มการค้นหาด้วยวันที่ (เช่น 15/5)
       );
     }
+
     return true;
   });
 
-  const handleExportCSV = () => {
+const handleExportCSV = () => {
     if (filteredOrders.length === 0) return alert("ไม่มีข้อมูลให้ดาวน์โหลดครับ");
-    const headers = ["วันที่สร้าง", "หมายเลขพัสดุ", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "รหัสไปรษณีย์", "รายการสินค้า", "ยอด COD", "แอดมิน"];
+
+    // 1. เพิ่มหัวข้อ "เลข Tracking" เข้าไปในอาเรย์ headers
+    const headers = ["วันที่สร้าง", "หมายเลข REF", "เลข Tracking", "ชื่อผู้รับ", "เบอร์โทร", "ที่อยู่", "รหัสไปรษณีย์", "รายการสินค้า", "ยอด COD", "แอดมิน"];
+
     const csvRows = filteredOrders.map(order => [ 
       order.createdAt ? order.createdAt.toDate().toLocaleString('th-TH') : '-', 
       `REF-${order.id.slice(-6).toUpperCase()}`, 
+      // 2. ดึงค่า trackingNum จาก Firestore มาใส่ (ถ้าไม่มีให้แสดง '-')
+      order.trackingNum || '-', 
       `"${order.customerName || ''}"`, 
       order.phone || '-', 
       `"${order.address || ''}"`, 
@@ -1090,8 +1109,11 @@ const handleSaveAndPrint = async () => {
       order.isCOD ? order.codAmount : "0", 
       order.adminEmail || '-' 
     ].join(','));
+
+    // ใส่ BOM (\uFEFF) เพื่อให้ Excel เปิดภาษาไทยได้ถูกต้อง
     const blob = new Blob(["\uFEFF" + headers.join(',') + '\n' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a"); link.href = URL.createObjectURL(blob); 
+    const link = document.createElement("a"); 
+    link.href = URL.createObjectURL(blob); 
     link.download = `SmartLabel_${selectedDate ? selectedDate.replace(/\//g, '-') : 'All'}.csv`; 
     link.click();
   };
