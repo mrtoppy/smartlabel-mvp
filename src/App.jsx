@@ -130,24 +130,34 @@ export default function App() {
     alert('คัดลอกลงคลิปบอร์ดแล้ว! นำไปวาง(Paste) ได้เลยครับ 📋');
   };
 
-  // 📦 ฟังก์ชันคัดลอกข้อความแจ้งเลขพัสดุให้ลูกค้า
-  const handleCopyTrackingMessage = (order) => {
-    const trackingNumber = trackingInputs[order.id];
-    
-    // ดักไว้ก่อน เผื่อแม่ค้าลืมกรอกเลขพัสดุ
-    if (!trackingNumber || trackingNumber.trim() === '') {
-      alert("⚠️ รบกวนกรอก 'เลขพัสดุ' ในช่องก่อนกดปุ่มคัดลอกนะครับท่าน CEO!");
+const handleCopyTrackingMessage = (order) => {
+    // ✨ จุดสำคัญ: เช็คทั้งจากช่องกรอกชั่วคราว (trackingInputs) และจากฐานข้อมูล (order.trackingNum)
+    const finalTracking = trackingInputs[order.id] || order.trackingNum;
+
+    if (!finalTracking) {
+      alert("รบกวนกรอก 'เลขพัสดุ' ในช่องก่อนกดส่งนะครับ!"); //
       return;
     }
 
-    // ประกอบร่างข้อความสุดน่ารัก
-    const customerName = order.customerName !== 'ไม่ระบุชื่อ' ? order.customerName : 'ลูกค้าที่น่ารัก';
-    const message = `จัดส่งพัสดุเรียบร้อยนะคะ 📦✨\n\nคุณ ${customerName}\nเลขพัสดุ: ${trackingNumber}\n\nเช็คสถานะพัสดุได้ที่นี่เลยค่ะ 👇\nhttps://track.thailandpost.co.th\n\nขอบพระคุณที่อุดหนุน ${storeProfile.name || 'ร้านของเรา'} นะคะ 🙏💖`;
+    // สร้างข้อความแจ้งลูกค้า (ท่าน CEO สามารถปรับแก้คำพูดได้ตามใจชอบครับ)
+    const message = `
+ขอบคุณที่อุดหนุนครับ! 🙏
+รายการ: ${order.customerName || 'คุณลูกค้า'}
+ยอดชำระ: ${order.isCOD ? `COD ${order.codAmount} บาท` : 'โอนเงินแล้ว'}
+📦 เลขพัสดุของคุณคือ: ${finalTracking}
+🚚 ตรวจสอบสถานะ: https://track.thailandpost.co.th/?trackNumber=${finalTracking}
 
-    // ใช้ฟังก์ชัน copy ของท่าน CEO ที่มีอยู่แล้ว
-    copyToClipboard(message);
-    
-    // (ทางเลือก) ถ้าอนาคตอยากให้มันเซฟเลขพัสดุลง Firebase ด้วย สามารถเขียนโค้ดอัปเดตลง db ตรงนี้ได้เลยครับ
+SmartLabel ยินดีให้บริการครับ ✅
+    `.trim();
+
+    // ทำการคัดลอกลง Clipboard
+    navigator.clipboard.writeText(message)
+      .then(() => {
+        alert("📋 คัดลอกข้อความแจ้งเลขพัสดุเรียบร้อยครับ!");
+      })
+      .catch(err => {
+        console.error('Error in copying:', err);
+      });
   };
   
   const [loading, setLoading] = useState(true);
