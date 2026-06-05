@@ -775,38 +775,35 @@ const handleAuth = async (e) => {
       .replace(/มีของ(ไหม|มั้ย)(ครับ|ค่ะ)/g, "")
       .trim();
 
-    // --- 🚀 2. ส่งข้อมูลไปช่องตรงกลาง ---
-    if (orders && orders.length > 0) {
-      handleTextChange(orders[0].id, cleanedText); 
-    } else {
-      console.warn("ยังไม่มีกล่องออเดอร์เปิดอยู่ครับ");
-    }
+    // --- 🚀 2. ส่งข้อมูลไปช่องตรงกลาง และฝังรหัสเชื่อมโยงแชท Facebook ---
+    const emptyOrderIndex = orders.findIndex(order => !order.rawText || order.rawText.trim() === '');
 
-    // 2.1 หาดูว่ามีกล่องออเดอร์ไหนที่ "ยังว่างอยู่" (ยังไม่มีข้อความ) บ้างไหม?
-    const emptyOrder = orders.find(order => !order.rawText || order.rawText.trim() === '');
-
-    if (emptyOrder) {
-      // 2.2 ถ้าเจอกล่องว่าง ให้เอาที่อยู่ไปใส่กล่องนั้นเลย
-      handleTextChange(emptyOrder.id, cleanedText); 
+    if (emptyOrderIndex > -1) {
+      // 2.1 ถ้ารสพบกล่องเก่าที่ว่างอยู่ ให้เอาที่อยู่ไปใส่ พร้อมผูกรหัสแชทพ่วงไปด้วย
+      setOrders(prevOrders => prevOrders.map((o, idx) => idx === emptyOrderIndex ? {
+        ...o,
+        rawText: cleanedText,
+        parsedData: extractOrderData(cleanedText),
+        pageId: chat.pageId || "",    // ⚡ ฝังรหัสเพจลงกล่องหน้าบ้าน
+        senderId: chat.senderId || "",  // ⚡ ฝังรหัสลูกค้าลงกล่องหน้าบ้าน
+        isSaved: false
+      } : o));
     } else {
-      // 2.3 แต่ถ้าทุกกล่องมีข้อมูลเต็มหมดแล้ว... ให้สร้างกล่องใหม่เพิ่มต่อท้ายเลย!
-      const newOrderId = Date.now(); // สร้าง ID ใหม่
+      // 2.2 ถ้ากล่องเต็มหมดแล้ว ให้สร้างกล่องออเดอร์ใหม่ต่อท้าย พร้อมผูกรหัสแชทไปทันที
+      const newOrderId = Date.now();
       const newOrder = { 
         id: newOrderId, 
-        rawText: cleanedText, // เอาที่อยู่ใส่เข้าไปเลย
-        parsedData: null, 
+        rawText: cleanedText, 
+        parsedData: extractOrderData(cleanedText), 
+        pageId: chat.pageId || "",    // ⚡ ฝังรหัสเพจลงกล่องหน้าบ้าน
+        senderId: chat.senderId || "",  // ⚡ ฝังรหัสลูกค้าลงกล่องหน้าบ้าน
         isSaved: false, 
         crmSuggestion: null 
       };
-      
-      // อัปเดต State โดยเอาของเก่าทั้งหมดมากาง แล้วเอาของใหม่ต่อท้าย
       setOrders(prevOrders => [...prevOrders, newOrder]);
-      
-      // *หมายเหตุ: ถ้าหน้าเว็บไม่ยอมดึงที่อยู่ไปสกัด (Parsed) อัตโนมัติ 
-      // ท่าน CEO อาจจะต้องเรียกใช้ extractOrderData(cleanedText) เพิ่มเติมตรงนี้นะครับ
     }
 
-    // --- 🧹 3. ซ่อนข้อความแชทเดิม ---
+    // --- 🧹 3. เปลี่ยนสถานะแชทใน Firebase เป็นพิมพ์แล้ว ---
     try {
       await updateDoc(doc(db, "chats", chat.id), { status: "processed" });
     } catch (error) {
@@ -962,109 +959,134 @@ const handleAuth = async (e) => {
   };
 
   // 📡 ฟังก์ชันเช็คสถานะจากไปรษณีย์ไทย
-const fetchTrackingStatus = async (trackingNum) => {
-  try {
-    const username = '22061'; // [cite: 1]
-    const password = 'RWJRlBbGkeMRTr7DSLGd9JGAaP0zjqPI'; // [cite: 1]
-    const authHeader = 'Basic ' + btoa(`${username}:${password}`); // [cite: 48]
+  const fetchTrackingStatus = async (trackingNum) => {
+    try {
+      const username = '22061'; // [cite: 1]
+      const password = 'RWJRlBbGkeMRTr7DSLGd9JGAaP0zjqPI'; // [cite: 1]
+      const authHeader = 'Basic ' + btoa(`${username}:${password}`); // [cite: 48]
 
-    // หมายเหตุ: URL นี้สำหรับดึงสถานะพัสดุ (Track & Trace)
-    const response = await fetch(`https://trackapi.thailandpost.co.th/post/api/v1/track`, {
-      method: 'POST',
-      headers: {
-        'Authorization': authHeader,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ "trackNumber": [trackingNum], "language": "TH" })
-    });
+      // หมายเหตุ: URL นี้สำหรับดึงสถานะพัสดุ (Track & Trace)
+      const response = await fetch(`https://trackapi.thailandpost.co.th/post/api/v1/track`, {
+        method: 'POST',
+        headers: {
+          'Authorization': authHeader,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ "trackNumber": [trackingNum], "language": "TH" })
+      });
 
-    const result = await response.json();
-    // ดึงสถานะล่าสุด (เช่น รับฝาก, อยู่ระหว่างขนส่ง, นำจ่ายสำเร็จ) 
-    return result.response.items[trackingNum][0].status_description || 'Preloaded';
-  } catch (error) {
-    return 'Preloaded'; // ถ้าเช็คไม่ได้ให้คงสถานะเดิมไว้
-  }
-};
-
-const handleUpdateAllStatus = async () => {
-  setLoading(true);
-  try {
-    const updatedOrders = await Promise.all(historyOrders.map(async (order) => {
-      if (order.trackingNum && order.status !== 'นำจ่ายสำเร็จ') {
-        const newStatus = await fetchTrackingStatus(order.trackingNum);
-        
-        // อัปเดตลง Firestore ด้วยครับ
-        const orderRef = doc(db, "orders", order.id);
-        await updateDoc(orderRef, { status: newStatus });
-        
-        return { ...order, status: newStatus };
-      }
-      return order;
-    }));
-    
-    setHistoryOrders(updatedOrders);
-    alert("✅ อัปเดตสถานะพัสดุทั้งหมดเรียบร้อยครับท่านเจ้าสำนัก!");
-  } catch (error) {
-    console.error(error);
-  } finally {
-    setLoading(false);
-  }
-};
-    
-const handleSaveAndPrint = async () => {
-    // 🔍 กรองเฉพาะออเดอร์ "ใหม่" ที่ยังไม่เคยเซฟ (isSaved เป็น false)
-    const newOrdersToSave = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
-    
-    // ... ส่วนเช็คโควต้า ...
-
-    if (newOrdersToSave.length > 0) {
-      try {
-        const thpToken = await getTHPToken();
-        const processedOrders = [];
-
-        for (const order of orders) {
-          // ✨ ดำเนินการเฉพาะงานใหม่ที่ยังไม่มีเลขพัสดุ
-          if (!order.isSaved && !order.trackingNum) {
-            const autoTracking = await fetchRealTrackingFromTHP('1'); 
-            
-            if (thpToken && autoTracking) {
-              await preloadOrderToTHP(thpToken, order, autoTracking);
-            }
-
-            // บันทึกลงฐานข้อมูล
-            await addDoc(collection(db, "orders"), {
-              ...order.parsedData,
-              trackingNum: autoTracking,
-              status: 'Preloaded',
-              // ... ข้อมูลอื่นๆ ...
-            });
-
-            processedOrders.push({ ...order, trackingNum: autoTracking, isSaved: true });
-          } else {
-            // 🔄 งานพิมพ์ซ้ำ (isSaved: true) ให้เก็บไว้พิมพ์อย่างเดียว ไม่ทำอะไรเพิ่ม
-            processedOrders.push(order);
-          }
-        }
-        setOrders(processedOrders);
-
-        // 💰 ตัดเครดิตเฉพาะจำนวนงานใหม่ (newOrdersToSave.length)
-        if (userRole === 'Owner') {
-          const userRef = doc(db, "users", user.uid);
-          await updateDoc(userRef, { 
-            quota: increment(-newOrdersToSave.length), 
-            usedQuota: increment(newOrdersToSave.length) 
-          });
-        }
-      } catch (error) { /* handle error */ }
+      const result = await response.json();
+      // ดึงสถานะล่าสุด (เช่น รับฝาก, อยู่ระหว่างขนส่ง, นำจ่ายสำเร็จ) 
+      return result.response.items[trackingNum][0].status_description || 'Preloaded';
+    } catch (error) {
+      return 'Preloaded'; // ถ้าเช็คไม่ได้ให้คงสถานะเดิมไว้
     }
-
-    setTimeout(() => {
-      window.print();
-      setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
-    }, 1000);
   };
 
-// 🖨️ ฟังก์ชันพิมพ์ซ้ำ (Reprint) - ใช้ข้อมูลเดิม ไม่ขอเลขใหม่
+  const handleUpdateAllStatus = async () => {
+    setLoading(true);
+    try {
+      const updatedOrders = await Promise.all(historyOrders.map(async (order) => {
+        if (order.trackingNum && order.status !== 'นำจ่ายสำเร็จ') {
+          const newStatus = await fetchTrackingStatus(order.trackingNum);
+          
+          // อัปเดตลง Firestore ด้วยครับ
+          const orderRef = doc(db, "orders", order.id);
+          await updateDoc(orderRef, { status: newStatus });
+          
+          return { ...order, status: newStatus };
+        }
+        return order;
+      }));
+      
+      setHistoryOrders(updatedOrders);
+      alert("✅ อัปเดตสถานะพัสดุทั้งหมดเรียบร้อยครับท่านเจ้าสำนัก!");
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+    
+  const handleSaveAndPrint = async () => {
+      // 🔍 กรองเฉพาะออเดอร์ "ใหม่" ที่ยังไม่เคยเซฟ (isSaved เป็น false) และมีที่อยู่จัดส่ง
+      const newOrdersToSave = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
+      
+      // ... ส่วนเช็คโควต้าของท่าน CEO ปล่อยไว้คงเดิมได้เลยครับ ...
+
+      if (newOrdersToSave.length > 0) {
+        try {
+          const thpToken = await getTHPToken();
+          const processedOrders = [];
+
+          for (const order of orders) {
+            // 🎯 ดำเนินการเฉพาะงานใหม่ที่ยังไม่มีการบันทึก และมีข้อมูลจัดส่ง
+            if (order.parsedData && !order.isSaved && !order.trackingNum) {
+              const autoTracking = await fetchRealTrackingFromTHP('1'); 
+              
+              if (thpToken && autoTracking) {
+                await preloadOrderToTHP(thpToken, order, autoTracking);
+              }
+
+              // ⚡ จัดระเบียบข้อมูล Payload ให้ Flat (แบนราบ) เพื่อให้ Dashboard และประวัติพัสดุดึงไปโชว์ได้ 100%
+              const orderPayload = {
+                // 👤 ข้อมูลผู้รับ (ดึงออกมาจากชั้นใน parsedData แผ่ออกมาเป็นระดับนอก)
+                customerName: order.parsedData.customerName || "ไม่ระบุชื่อ",
+                phone: order.parsedData.phone || "ไม่ระบุเบอร์",
+                address: order.parsedData.address || "ไม่ระบุที่อยู่",
+                zipcode: order.parsedData.zipcode || "",
+                items: order.parsedData.items || [],
+                isCOD: order.parsedData.isCOD || false,
+                codAmount: Number(order.parsedData.codAmount) || 0,
+                rawText: order.rawText || "",
+                
+                // 📦 ข้อมูลสถานะและเลขแทรคกิ้งของไปรษณีย์ไทย
+                trackingNum: autoTracking || "",
+                status: '📦 เตรียมการส่ง',
+                
+                // 🔐 กุญแจชี้เป้าสำหรับเชื่อมโยงสิทธิ์แชทและการแสดงผล
+                ownerId: userOwnerId || "",                            // รหัสเจ้าของร้านค้า
+                pageId: order.pageId || order.parsedData.pageId || "",    // ID เพจ Facebook
+                senderId: order.senderId || order.parsedData.senderId || "", // ID แชทของลูกค้า
+                creatorName: storeProfile.staffName || "Owner",        // ผู้ทำรายการ
+                adminEmail: user?.email || "-",
+                
+                // 📅 ตราประทับเวลา
+                createdAt: serverTimestamp()
+              };
+
+              // 💾 บันทึกลงฐานข้อมูลแฟ้ม orders
+              await addDoc(collection(db, "orders"), orderPayload);
+
+              processedOrders.push({ ...order, trackingNum: autoTracking, isSaved: true });
+            } else {
+              // 🔄 งานพิมพ์ซ้ำ (isSaved: true) ให้เก็บไว้พิมพ์อย่างเดียว ไม่ทำอะไรเพิ่ม
+              processedOrders.push(order);
+            }
+          }
+          setOrders(processedOrders);
+
+          // 💰 ตัดเครดิตเฉพาะจำนวนงานใหม่ (newOrdersToSave.length)
+          if (userRole === 'Owner') {
+            const userRef = doc(db, "users", user.uid);
+            await updateDoc(userRef, { 
+              quota: increment(-newOrdersToSave.length), 
+              usedQuota: increment(newOrdersToSave.length) 
+            });
+          }
+        } catch (error) { 
+          console.error("❌ บันทึกใบปะหน้าขัดข้อง:", error); 
+        }
+      }
+
+      // 🖨️ สั่งพิมพ์ใบความร้อน
+      setTimeout(() => {
+        window.print();
+        setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
+      }, 1000);
+    };
+
+  // 🖨️ ฟังก์ชันพิมพ์ซ้ำ (Reprint) - ใช้ข้อมูลเดิม ไม่ขอเลขใหม่
   const handleReprint = (oldOrder) => {
     setOrders([{
       ...oldOrder,
