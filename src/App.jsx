@@ -2390,26 +2390,47 @@ if (!user && isAuthView) {
                                 : <span className="font-black text-emerald-600 text-sm bg-emerald-50 px-4 py-1.5 rounded-xl border border-emerald-100">โอนเงินแล้ว</span>}
                             </td>
                             
-                            {/* 📦 โซนกรอกเลขพัสดุและก๊อปปี้ */}
+                            {/* 📦 โซนกรอกเลขพัสดุและส่งแชทสายฟ้าแลบ (ฉบับเสถียร 100%) */}
                             <td className="py-4 px-6">
                               <div className="flex gap-2 items-center justify-center">
                                 <input 
                                   type="text" 
                                   placeholder="เช่น OA123456789TH" 
                                   className="border border-slate-200 p-2 rounded-lg text-xs w-36 focus:ring-2 focus:ring-blue-300 outline-none uppercase font-mono"
-                                  // 👈 จุดที่ต้องแก้: ถ้าเรากำลังพิมพ์ ให้โชว์ค่าที่พิมพ์ (trackingInputs) 
-                                  // แต่ถ้าไม่ได้พิมพ์ ให้โชว์ค่าที่มาจากฐานข้อมูล (order.trackingNum)
                                   value={trackingInputs[order.id] !== undefined ? trackingInputs[order.id] : (order.trackingNum || '')}
                                   onChange={(e) => setTrackingInputs({...trackingInputs, [order.id]: e.target.value.toUpperCase()})}
                                 />
-                                <button 
-                                  onClick={() => handleCopyTrackingMessage(order)}
-                                  className="bg-emerald-500 text-white p-2 rounded-lg text-xs font-bold hover:bg-emerald-600 transition-colors shadow-sm flex items-center justify-center"
-                                  title="คัดลอกข้อความแจ้งลูกค้า"
-                                >
-                                  📋 ก๊อปปี้
-                                </button>
+                                
+                                {/* ⚡ ตรวจสอบตัวแปรพิมพ์ใหญ่พิมพ์เล็ก (pageId / senderId) ให้ตรงกับ Firestore */}
+                                {order.pageId && order.senderId ? (
+                                  <button 
+                                    onClick={() => handleCopyTrackingMessage(order)}
+                                    className="bg-blue-600 text-white p-2 rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center justify-center gap-1"
+                                    title="ส่งเลขพัสดุเข้า Facebook Messenger ลูกค้าโดยตรง"
+                                  >
+                                    ⚡ ส่งเข้าแชท
+                                  </button>
+                                ) : (
+                                  <button 
+                                    onClick={() => handleCopyTrackingMessage(order)}
+                                    className="bg-emerald-500 text-white p-2 rounded-lg text-xs font-bold hover:bg-emerald-600 transition-colors shadow-sm flex items-center justify-center gap-1"
+                                    title="คัดลอกข้อความเพื่อไปวางในแชทด้วยตัวเอง"
+                                  >
+                                    📋 ก๊อปปี้
+                                  </button>
+                                )}
                               </div>
+                            </td>
+
+                            {/* 🖨️ โซนปุ่มพิมพ์ซ้ำ (แยกทางไม่ทับเส้นกัน หน้าต่างพรีวิวจะไม่หายแว๊บ) */}
+                            <td className="py-4 px-6 text-center">
+                              <button 
+                                onClick={() => handleReprint(order)}
+                                className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-600 hover:text-white transition-colors shadow-sm"
+                                title="ดึงข้อมูลนี้กลับไปที่หน้าสร้างจ่าหน้าเพื่อเปิดพรีวิว"
+                              >
+                                🖨️ พิมพ์ซ้ำ
+                              </button>
                             </td>
 
                             <td className="py-4 px-6 text-center">
