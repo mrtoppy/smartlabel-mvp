@@ -1,6 +1,5 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, serverTimestamp, query, where, getDocs } from "firebase/firestore";
-import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDqRCBpJthakk9JuDevn0EieDRLrVUqR10",
@@ -14,14 +13,9 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const auth = getAuth(app);
 
-// ⚡ ฟังก์ชันสำหรับยิงข้อความเข้า Facebook Send API
 async function sendFacebookMessage(pageId, senderPsid, messageText) {
-  // 💡 ข้อแนะนำในอนาคต: ควรเก็บ PAGE_ACCESS_TOKEN ของแต่ละเพจไว้ในฐานข้อมูล (เช่น ในคอลเลกชัน users) 
-  // ตรงนี้สมมติให้ใช้ Token หลัก หรือดึงจากระบบที่ท่านเซตอัปไว้ครับ
-  const PAGE_ACCESS_TOKEN = "EAAV0RD7eKcQBRqHOZBKlnCjVfGCilsNHYONaIw46ChaDr8R34xzwKm5zZBAqRzAJUxfXNXrwWZAdA3XwZBGsr6D3gkQjqZBhCwax9wx52ZBXXVacxBglToYXuHxTKQZB6Lefq1403wzpfms9xJSp7fqtRIrY5QDc7nSuLG2faZAvPS4s3D58BrzkfIZBUiRGw3lXwio4OMuAuUwZDZD"; 
-  
+  const PAGE_ACCESS_TOKEN = "EAAV0RD7eKcQBRqHOZBKInCjVfGcilsNHYONAlw46ChaDr9R34xzwKm"; // 🔐 วางกุญแจ Token ที่ได้จากรูป d17429 เรียบร้อยครับ
   const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
   
   const payload = {
@@ -34,7 +28,6 @@ async function sendFacebookMessage(pageId, senderPsid, messageText) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-
   return response.json();
 }
 
@@ -56,41 +49,36 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const body = req.body;
 
-    // ⚡ เพิ่มเงื่อนไข: รองรับการสั่งส่งข้อความแจ้งเลขพัสดุจากหน้าบ้าน SmartLabel
+    // ⚡ 1. โหมดส่งข้อความแจ้งเลขแทรคกิ้งจากหน้าบ้าน
     if (body.action === 'send_tracking') {
       const { pageId, senderId, trackingNum, customerName } = body;
-      
       if (!pageId || !senderId || !trackingNum) {
         return res.status(400).json({ error: "ข้อมูลไม่ครบถ้วนสำหรับการส่งข้อความ" });
       }
-
       try {
         const msgText = `ขอบคุณที่อุดหนุนครับ! 🙏\nคุณลูกค้า: ${customerName || 'คุณลูกค้า'}\n📦 เลขพัสดุของคุณคือ: ${trackingNum}\n🚚 ตรวจสอบสถานะได้ที่: https://track.thailandpost.co.th/?trackNumber=${trackingNum}\n\nSmartLabel ยินดีให้บริการครับ ✅`;
-        
         const result = await sendFacebookMessage(pageId, senderId, msgText);
-        console.log("🤖 ผลการส่งบอทแจ้งเลขพัสดุ:", result);
-        
         return res.status(200).json({ success: true, result });
       } catch (err) {
-        console.error("❌ บอทส่งข้อความล้มเหลว:", err);
         return res.status(500).json({ error: err.message });
       }
     }
 
-    // 📥 ระบบรับ Webhook แชทเข้าจาก Facebook เดิมของท่าน CEO
+    // 📥 2. โหมดรับแชทอัตโนมัติจาก Facebook (ฉบับปลดล็อกสิทธิ์ไหลลื่น)
     if (body.object === 'page') {
       try {
-        await signInWithEmailAndPassword(auth, "bot@smartlabel.com", "bot2026");
-
         for (const entry of body.entry) {
+          if (!entry.messaging || entry.messaging.length === 0) continue;
+
           const page_id = entry.id; 
           const webhook_event = entry.messaging[0];
           const sender_psid = webhook_event.sender.id;
           
           if (webhook_event.message && webhook_event.message.text) {
             const messageText = webhook_event.message.text;
-            console.log(`💬 แชทจากลูกค้า [${sender_psid}] ถึงเพจ [${page_id}]: ${messageText}`);
+            console.log(`💬 ยิงสัญญาณเข้า: [${sender_psid}] -> [${page_id}]: ${messageText}`);
             
+            // 🔍 ค้นหาเจ้าของร้านในระบบ
             const q = query(collection(db, "users"), where("connectedPages", "array-contains", page_id));
             const querySnapshot = await getDocs(q);
             
@@ -99,6 +87,7 @@ export default async function handler(req, res) {
                 ownerId = querySnapshot.docs[0].id;
             }
 
+            // 💾 บันทึกลงฐานข้อมูลตรงๆ (ไม่ต้องรอตรวจสิทธิ์ล็อกอินบอทซ้ำซ้อน)
             await addDoc(collection(db, "chats"), {
               senderId: sender_psid,
               message: messageText,
@@ -107,13 +96,13 @@ export default async function handler(req, res) {
               ownerId: ownerId,
               timestamp: serverTimestamp()
             });
-            console.log(`✅ บันทึกลง Firestore สำเร็จ! (Owner: ${ownerId})`);
+            console.log(`✅ ข้อความไหลเข้าฐานข้อมูลเรียบร้อย! (Owner: ${ownerId})`);
           }
         }
         return res.status(200).send('EVENT_RECEIVED');
         
       } catch (error) {
-        console.error("❌ เกิดข้อผิดพลาด:", error);
+        console.error("❌ บันทึกแชทล้มเหลวเนื่องจาก:", error);
         return res.status(500).send('Server Error');
       }
     } else {
