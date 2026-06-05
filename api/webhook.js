@@ -15,7 +15,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 async function sendFacebookMessage(pageId, senderPsid, messageText) {
-  const PAGE_ACCESS_TOKEN = "EAAV0RD7eKcQBRqHOZBKInCjVfGcilsNHYONAlw46ChaDr9R34xzwKm"; // 🔐 วางกุญแจ Token ที่ได้จากรูป d17429 เรียบร้อยครับ
+  const PAGE_ACCESS_TOKEN = "EAAV0RD7eKcQBRqHOZBKlnCjVfGCilsNHYONaIw46ChaDr8R34xzwKm5zZBAqRzAJUxfXNXrwWZAdA3XwZBGsr6D3gkQjqZBhCwax9wx52ZBXXVacxBglToYXuHxTKQZB6Lefq1403wzpfms9xJSp7fqtRIrY5QDc7nSuLG2faZAvPS4s3D58BrzkfIZBUiRGw3lXwio4OMuAuUwZDZD"; // 🔐 วางกุญแจ Token ที่ได้จากรูป d17429 เรียบร้อยครับ
   const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
   
   const payload = {
