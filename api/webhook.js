@@ -20,7 +20,7 @@ const auth = getAuth(app);
 async function sendFacebookMessage(pageId, senderPsid, messageText) {
   // 💡 ข้อแนะนำในอนาคต: ควรเก็บ PAGE_ACCESS_TOKEN ของแต่ละเพจไว้ในฐานข้อมูล (เช่น ในคอลเลกชัน users) 
   // ตรงนี้สมมติให้ใช้ Token หลัก หรือดึงจากระบบที่ท่านเซตอัปไว้ครับ
-  const PAGE_ACCESS_TOKEN = "YOUR_PAGE_ACCESS_TOKEN_HERE"; 
+  const PAGE_ACCESS_TOKEN = "EAAV0RD7eKcQBRqHOZBKlnCjVfGCilsNHYONaIw46ChaDr8R34xzwKm5zZBAqRzAJUxfXNXrwWZAdA3XwZBGsr6D3gkQjqZBhCwax9wx52ZBXXVacxBglToYXuHxTKQZB6Lefq1403wzpfms9xJSp7fqtRIrY5QDc7nSuLG2faZAvPS4s3D58BrzkfIZBUiRGw3lXwio4OMuAuUwZDZD"; 
   
   const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
   
