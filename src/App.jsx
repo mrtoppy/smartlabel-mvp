@@ -130,35 +130,62 @@ export default function App() {
     alert('คัดลอกลงคลิปบอร์ดแล้ว! นำไปวาง(Paste) ได้เลยครับ 📋');
   };
 
-const handleCopyTrackingMessage = (order) => {
-    // ✨ จุดสำคัญ: เช็คทั้งจากช่องกรอกชั่วคราว (trackingInputs) และจากฐานข้อมูล (order.trackingNum)
-    const finalTracking = trackingInputs[order.id] || order.trackingNum;
+  const handleCopyTrackingMessage = async (order) => {
+      // 1. ดึงเลขพัสดุจากช่องกรอก หรือจากฐานข้อมูล
+      const finalTracking = trackingInputs[order.id] || order.trackingNum;
 
-    if (!finalTracking) {
-      alert("รบกวนกรอก 'เลขพัสดุ' ในช่องก่อนกดส่งนะครับ!"); //
-      return;
-    }
+      if (!finalTracking) {
+        alert("รบกวนตรวจสอบ 'เลขพัสดุ' ในช่องก่อนกดส่งนะครับท่าน CEO!");
+        return;
+      }
 
-    // สร้างข้อความแจ้งลูกค้า (ท่าน CEO สามารถปรับแก้คำพูดได้ตามใจชอบครับ)
-    const message = `
-ขอบคุณที่อุดหนุนครับ! 🙏
-รายการ: ${order.customerName || 'คุณลูกค้า'}
-ยอดชำระ: ${order.isCOD ? `COD ${order.codAmount} บาท` : 'โอนเงินแล้ว'}
-📦 เลขพัสดุของคุณคือ: ${finalTracking}
-🚚 ตรวจสอบสถานะ: https://track.thailandpost.co.th/?trackNumber=${finalTracking}
+      // 2. ⚡ ถ้าระบบตรวจสอบแล้วพบ pageId และ senderId จากแชท (เหมือนในภาพ image_de2385.jpg)
+      if (order.pageId && order.senderId) {
+        try {
+          // ยิง Fetch API ไปที่หลังบ้าน webhook.js
+          const response = await fetch('/api/webhook', { // 🛑 ปรับ Path ตรงนี้ให้ตรงกับ Route หลังบ้านของท่านนะครับ เช่น /api/webhook
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'send_tracking',
+              pageId: order.pageId,
+              senderId: order.senderId,
+              trackingNum: finalTracking,
+              customerName: order.customerName
+            })
+          });
 
-SmartLabel ยินดีให้บริการครับ ✅
-    `.trim();
+          const data = await response.json();
+          if (data.success) {
+            alert(`⚡ ยิงเลขพัสดุ ${finalTracking} เข้า Messenger คุณ ${order.customerName || ''} เรียบร้อยครับท่าน CEO!`);
+            return; // ส่งสำเร็จ จบงานทันทีไม่ต้องก๊อปวาง
+          } else {
+            console.error("Webhook error:", data.error);
+          }
+        } catch (error) {
+          console.error("Failed to send automatic chat:", error);
+        }
+      }
 
-    // ทำการคัดลอกลง Clipboard
-    navigator.clipboard.writeText(message)
-      .then(() => {
-        alert("📋 คัดลอกข้อความแจ้งเลขพัสดุเรียบร้อยครับ!");
-      })
-      .catch(err => {
-        console.error('Error in copying:', err);
-      });
-  };
+      // 3. 📋 โหมดสำรอง (Fallback): ถ้าไม่มีรหัสแชท หรือระบบบอทขัดข้อง ให้ก๊อปปี้ลงคลิปบอร์ดแบบเดิมทันที
+      const message = `
+  ขอบคุณที่อุดหนุนครับ! 🙏
+  รายการ: ${order.customerName || 'คุณลูกค้า'}
+  ยอดชำระ: ${order.isCOD ? `COD ${order.codAmount} บาท` : 'โอนเงินแล้ว'}
+  📦 เลขพัสดุของคุณคือ: ${finalTracking}
+  🚚 ตรวจสอบสถานะ: https://track.thailandpost.co.th/?trackNumber=${finalTracking}
+
+  SmartLabel ยินดีให้บริการครับ ✅
+      `.trim();
+
+      navigator.clipboard.writeText(message)
+        .then(() => {
+          alert("📋 ระบบคัดลอกข้อความแจ้งเลขพัสดุลงคลิปบอร์ดให้แทนเรียบร้อยครับ!");
+        })
+        .catch(err => {
+          console.error('Error in copying:', err);
+        });
+    };
   
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('maker'); 
