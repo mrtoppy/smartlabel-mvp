@@ -2432,16 +2432,6 @@ if (!user && isAuthView) {
                                 🖨️ พิมพ์ซ้ำ
                               </button>
                             </td>
-
-                            <td className="py-4 px-6 text-center">
-                              <button 
-                                onClick={() => handleReprint(order)}
-                                className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-600 hover:text-white transition-colors shadow-sm"
-                                title="ดึงข้อมูลนี้กลับไปที่หน้าสร้างจ่าหน้า"
-                              >
-                                🖨️ พิมพ์ซ้ำ
-                              </button>
-                            </td>
                             <td className="py-4 px-6 text-center">
                               {order.trackingNum ? (
                                 <div className="flex flex-col items-center gap-1">
