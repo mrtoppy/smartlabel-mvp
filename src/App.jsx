@@ -873,12 +873,12 @@ const handleAuth = async (e) => {
         
         const userRef = doc(db, "users", user.uid);
         
-        // 1. 💾 สั่งบันทึกลง Firebase (ดึงของจากตะกร้า tempProfile ไปเซฟ)
+        // ⚡ ปรับปรุงใน App.jsx ตอนที่แม่ค้ากดยืนยันตั้งค่าร้าน
         await setDoc(userRef, {
-          storeName: tempProfile.name,      // 👈 เปลี่ยนตรงนี้เป็น temp
-          phone: tempProfile.phone,         // 👈 เปลี่ยนตรงนี้เป็น temp
-          address: tempProfile.address,     // 👈 เปลี่ยนตรงนี้เป็น temp
-          connectedPages: selectedPages, 
+          storeName: tempProfile.name,
+          phone: tempProfile.phone,
+          address: tempProfile.address,
+          connectedPages: selectedPages,
           updatedAt: serverTimestamp()
         }, { merge: true });
 
@@ -1942,14 +1942,29 @@ if (!user && isAuthView) {
                 autoLoad={false}
                 fields="name,email,picture,accounts"
                 scope="pages_show_list,pages_messaging,pages_read_engagement"
-                callback={(response) => {
+                callback={async (response) => {
                   console.log("ได้ข้อมูลจาก Facebook แล้ว!", response);
                   if (response.accounts && response.accounts.data.length > 0) {
-                     // เซ็ตข้อมูลเพจลง State เพื่อเอาไปโชว์ให้แม่ค้าเลือก
-                     setConnectedPages(response.accounts.data);
-                     alert(`พบ ${response.accounts.data.length} เพจ! กรุณาติ๊กเลือกเพจด้านล่างเพื่อเชื่อมต่อครับ`);
+                    setConnectedPages(response.accounts.data);
+                    
+                    // 🔑 [ทางแก้ SaaS ตัวจริง] บันทึกกุญแจหลัก pageAccessToken ลง Firebase ทันทีตรงนี้เลยครับ!
+                    if (user) {
+                      try {
+                        const userRef = doc(db, "users", user.uid);
+                        await updateDoc(userRef, {
+                          // เก็บ Token ชุดยาวที่เป็นกุญแจสากลของร้านค้านี้ไว้ใช้งานในระบบหลังบ้าน
+                          pageAccessToken: response.accessToken, 
+                          updatedAt: serverTimestamp()
+                        });
+                        console.log("✅ บันทึกกุญแจสากล pageAccessToken เข้า Firebase สำเร็จ!");
+                      } catch (err) {
+                        console.error("บันทึก Token ล้มเหลว:", err);
+                      }
+                    }
+                    
+                    alert(`พบ ${response.accounts.data.length} เพจ! กรุณาติ๊กเลือกเพจด้านล่างเพื่อเชื่อมต่อครับ`);
                   } else {
-                     alert("คุณยังไม่ได้อนุญาตสิทธิ์เข้าถึงเพจ หรือคุณไม่มีเพจครับ");
+                    alert("คุณยังไม่ได้อนุญาตสิทธิ์เข้าถึงเพจ หรือคุณไม่มีเพจครับ");
                   }
                 }}
                 render={renderProps => (

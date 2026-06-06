@@ -14,15 +14,13 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-async function sendFacebookMessage(pageId, senderPsid, messageText) {
-  const PAGE_ACCESS_TOKEN = "EAAV0RD7eKcQBRqHOZBKlnCjVfGCilsNHYONaIw46ChaDr8R34xzwKm5zZBAqRzAJUxfXNXrwWZAdA3XwZBGsr6D3gkQjqZBhCwax9wx52ZBXXVacxBglToYXuHxTKQZB6Lefq1403wzpfms9xJSp7fqtRIrY5QDc7nSuLG2faZAvPS4s3D58BrzkfIZBUiRGw3lXwio4OMuAuUwZDZD"; // 🔐 วางกุญแจ Token ที่ได้จากรูป d17429 เรียบร้อยครับ
-  const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
-  
+// 📡 ฟังก์ชันส่งข้อความ: รับกุญแจเฉพาะของแต่ละร้านเข้าไปยิง API
+async function sendFacebookMessage(pageAccessToken, senderPsid, messageText) {
+  const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${pageAccessToken}`;
   const payload = {
     recipient: { id: senderPsid },
     message: { text: messageText }
   };
-
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -38,7 +36,6 @@ export default async function handler(req, res) {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
-
     if (mode === 'subscribe' && token === VERIFY_TOKEN) {
       return res.status(200).send(challenge);
     } else {
@@ -49,65 +46,83 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const body = req.body;
 
-    // ⚡ 1. โหมดส่งข้อความแจ้งเลขแทรคกิ้งจากหน้าบ้าน
+    // ⚡ [จุดอัปเกรดที่ 1] โหมดกดส่งเลขพัสดุสายฟ้าแลบจากหน้าตาราง Dashboard (SaaS Version)
     if (body.action === 'send_tracking') {
       const { pageId, senderId, trackingNum, customerName } = body;
       if (!pageId || !senderId || !trackingNum) {
         return res.status(400).json({ error: "ข้อมูลไม่ครบถ้วนสำหรับการส่งข้อความ" });
       }
       try {
+        // 🔍 สลับกุญแจ: ค้นหา Token ของร้านค้าเจ้าของเพจนี้ในฐานข้อมูล
+        const qStore = query(collection(db, "users"), where("connectedPages", "array-contains", pageId));
+        const storeSnapshot = await getDocs(qStore);
+        
+        if (storeSnapshot.empty || !storeSnapshot.docs[0].data().pageAccessToken) {
+          return res.status(404).json({ error: "ไม่พบกุญแจเชื่อมต่อ Facebook ของร้านค้านี้" });
+        }
+        
+        const storeToken = storeSnapshot.docs[0].data().pageAccessToken;
         const msgText = `ขอบคุณที่อุดหนุนครับ! 🙏\nคุณลูกค้า: ${customerName || 'คุณลูกค้า'}\n📦 เลขพัสดุของคุณคือ: ${trackingNum}\n🚚 ตรวจสอบสถานะได้ที่: https://track.thailandpost.co.th/?trackNumber=${trackingNum}\n\nSmartLabel ยินดีให้บริการครับ ✅`;
-        const result = await sendFacebookMessage(pageId, senderId, msgText);
+        
+        // ยิงส่งข้อความออกไปด้วย Token ของร้านค้านั้นๆ
+        const result = await sendFacebookMessage(storeToken, senderId, msgText);
         return res.status(200).json({ success: true, result });
       } catch (err) {
         return res.status(500).json({ error: err.message });
       }
     }
 
-    // 📥 2. โหมดรับแชทอัตโนมัติจาก Facebook (ฉบับปลดล็อกสิทธิ์ไหลลื่น)
+    // 📥 [จุดอัปเกรดที่ 2] โหมดรับแชทอัตโนมัติจาก Facebook เข้า Smart Inbox 
     if (body.object === 'page') {
       try {
         for (const entry of body.entry) {
-          if (!entry.messaging || entry.messaging.length === 0) continue;
-
           const page_id = entry.id; 
-          const webhook_event = entry.messaging[0];
-          const sender_psid = webhook_event.sender.id;
-          
-          if (webhook_event.message && webhook_event.message.text) {
-            const messageText = webhook_event.message.text;
-            console.log(`💬 ยิงสัญญาณเข้า: [${sender_psid}] -> [${page_id}]: ${messageText}`);
-            
-            // 🔍 ค้นหาเจ้าของร้านในระบบ
-            const q = query(collection(db, "users"), where("connectedPages", "array-contains", page_id));
+
+          if (entry.messaging && entry.messaging[0]) {
+            const messaging_event = entry.messaging[0];
+            const sender_psid = messaging_event.sender.id;
+
+            // 🔍 สลับท่อส่ง: ค้นหาใน Firestore ว่าใครเชื่อมต่อเพจไอดีนี้อยู่
+            const usersRef = collection(db, "users");
+            const q = query(usersRef, where("connectedPages", "array-contains", page_id));
             const querySnapshot = await getDocs(q);
-            
-            let ownerId = "unknown";
+
+            let currentStoreToken = null;
+            let ownerId = null;
+
             if (!querySnapshot.empty) {
-                ownerId = querySnapshot.docs[0].id;
+              const userData = querySnapshot.docs[0].data();
+              ownerId = querySnapshot.docs[0].id; 
+              currentStoreToken = userData.pageAccessToken; // 🔑 ดึงกุญแจร้านค้าย่อยมาสลับใช้
+            }
+            
+            // บันทึกข้อมูลแชทไหลเข้า Smart Inbox
+            if (messaging_event.message && messaging_event.message.text) {
+              const incomingMessage = messaging_event.message.text;
+              
+              await addDoc(collection(db, "chats"), {
+                pageId: page_id,
+                senderId: sender_psid,
+                message: incomingMessage,
+                ownerId: ownerId || "unknown", // ⚡ ผูกเข้าตะกร้าร้านค้านั้นๆ โดยตรง ข้อมูลไม่ปนกัน
+                status: "new", // สเตตัสเป็นแชทใหม่เสมอ
+                timestamp: serverTimestamp()
+              });
             }
 
-            // 💾 บันทึกลงฐานข้อมูลตรงๆ (ไม่ต้องรอตรวจสิทธิ์ล็อกอินบอทซ้ำซ้อน)
-            await addDoc(collection(db, "chats"), {
-              senderId: sender_psid,
-              message: messageText,
-              status: "new",
-              pageId: page_id,
-              ownerId: ownerId,
-              timestamp: serverTimestamp()
-            });
-            console.log(`✅ ข้อความไหลเข้าฐานข้อมูลเรียบร้อย! (Owner: ${ownerId})`);
+            // ถ้าบอทอยากคุยตอบกลับอัตโนมัติยามเช้า (ถ้าต้องการใช้งานสามารถเปิดคอมเมนต์ได้ครับ)
+            if (currentStoreToken && messaging_event.message) {
+               // await sendFacebookMessage(currentStoreToken, sender_psid, "ระบบได้รับที่อยู่เรียบร้อยแล้วค่ะ สแตนด์บายรอเลขพัสดุได้เลย!");
+            }
           }
         }
         return res.status(200).send('EVENT_RECEIVED');
-        
       } catch (error) {
-        console.error("❌ บันทึกแชทล้มเหลวเนื่องจาก:", error);
-        return res.status(500).send('Server Error');
+        console.error("Webhook Error:", error);
+        return res.status(500).json({ error: error.message });
       }
-    } else {
-      return res.status(404).send('Not Found');
     }
+    return res.status(404).send();
   }
 
   res.setHeader('Allow', ['GET', 'POST']);
