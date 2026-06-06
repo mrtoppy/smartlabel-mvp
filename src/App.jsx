@@ -1086,19 +1086,43 @@ const handleAuth = async (e) => {
       }, 1000);
     };
 
-  // 🖨️ ฟังก์ชันพิมพ์ซ้ำ (Reprint) - ใช้ข้อมูลเดิม ไม่ขอเลขใหม่
+// 🖨️ ฟังก์ชันพิมพ์ซ้ำ (Reprint) - ปรับปรุงฉบับเสถียรป้องกันอาการจอขาวน็อคกลางอากาศ
   const handleReprint = (oldOrder) => {
-    setOrders([{
-      ...oldOrder,
-      id: oldOrder.id, 
-      rawText: oldOrder.rawText || '',
-      parsedData: { ...oldOrder }, 
-      isSaved: true, // ✅ มาร์คว่าบันทึกแล้ว (สำคัญมาก)
-      trackingNum: oldOrder.trackingNum // ✅ ดึงเลขพัสดุเดิมมาใช้
-    }]);
-    
-    // เลื่อนหน้าจอขึ้นไปส่วนบน
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    try {
+      // 🛡️ ดักจับและป้องกันกรณี items หลุดหายจากฐานข้อมูล (ป้องกันข้อผิดพลาด .length)
+      const safeItems = Array.isArray(oldOrder.items) 
+        ? oldOrder.items 
+        : (oldOrder.parsedData?.items && Array.isArray(oldOrder.parsedData.items) ? oldOrder.parsedData.items : []);
+
+      // 🎯 ประกอบโครงสร้างที่อยู่กลับคืนเป็นข้อความดิบ (RawText) เพื่อให้กล่องหน้าบ้านสกัดใหม่ได้เนียนตา
+      const reconstructedRawText = oldOrder.rawText || 
+        `${oldOrder.customerName || ''}\n${oldOrder.address || ''} ${oldOrder.zipcode || ''}\n${oldOrder.phone || ''}`;
+
+      setOrders([{
+        ...oldOrder,
+        id: oldOrder.id, 
+        rawText: reconstructedRawText,
+        // จัดระเบียบชั้นตัวแปร parsedData คืนชีพส่งกลับหน้าบ้าน
+        parsedData: {
+          customerName: oldOrder.customerName || "ไม่ระบุชื่อ",
+          phone: oldOrder.phone || "-",
+          address: oldOrder.address || "ไม่ระบุที่อยู่",
+          zipcode: oldOrder.zipcode || "",
+          items: safeItems, // Safe Mode: ถ้าไม่มีข้อมูลสินค้าจะถูกแทนที่ด้วย Array ว่างทันที ตัวแอปจะไม่น็อค
+          isCOD: oldOrder.isCOD || false,
+          codAmount: oldOrder.codAmount || 0,
+          warnings: []
+        },
+        isSaved: true, // มาร์คค้างไว้ว่าบันทึกแล้ว จะได้ไม่ไปตัดสิทธิ์หรือขอเลขพัสดุซ้ำ
+        trackingNum: oldOrder.trackingNum // ดึงกุญแจเลขพัสดุเดิมมาใช้จ่าหน้าต่อ
+      }]);
+      
+      // สั่งพากระจกหน้าจอสไลด์เลื่อนขึ้นไปด้านบนสุด (หน้าสร้างจ่าหน้า) อัตโนมัติ
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (error) {
+      console.error("เกิดข้อผิดพลาดในการดึงข้อมูลพิมพ์ซ้ำ:", error);
+      alert("⚠️ ขออภัยครับ ระบบไม่สามารถดึงออเดอร์นี้กลับไปพิมพ์ซ้ำได้ เนื่องจากโครงสร้างข้อมูลเดิมไม่สมบูรณ์");
+    }
   };
 
   const handleEditHistory = (order) => { setOrders([{ id: Date.now(), rawText: order.rawText || '', parsedData: extractOrderData(order.rawText || ''), isSaved: false, crmSuggestion: null }, { id: Date.now() + 1, rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }]); setActiveTab('maker'); window.scrollTo(0, 0); };
