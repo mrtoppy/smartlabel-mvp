@@ -1966,29 +1966,47 @@ if (!user && isAuthView) {
                 autoLoad={false}
                 fields="name,email,picture,accounts"
                 scope="pages_show_list,pages_messaging,pages_read_engagement"
+                // 📍 ปรับปรุงท่อน callback ของ FacebookLogin ใน App.jsx ให้ดึง Page Token ตัวจริง
                 callback={async (response) => {
-                  console.log("ได้ข้อมูลจาก Facebook แล้ว!", response);
-                  if (response.accounts && response.accounts.data.length > 0) {
-                    setConnectedPages(response.accounts.data);
-                    
-                    // 🔑 [ทางแก้ SaaS ตัวจริง] บันทึกกุญแจหลัก pageAccessToken ลง Firebase ทันทีตรงนี้เลยครับ!
-                    if (user) {
-                      try {
-                        const userRef = doc(db, "users", user.uid);
-                        await updateDoc(userRef, {
-                          // เก็บ Token ชุดยาวที่เป็นกุญแจสากลของร้านค้านี้ไว้ใช้งานในระบบหลังบ้าน
-                          pageAccessToken: response.accessToken, 
-                          updatedAt: serverTimestamp()
-                        });
-                        console.log("✅ บันทึกกุญแจสากล pageAccessToken เข้า Firebase สำเร็จ!");
-                      } catch (err) {
-                        console.error("บันทึก Token ล้มเหลว:", err);
+                  console.log("ล็อกอินบุคคลสำเร็จ:", response);
+                  
+                  if (response.accessToken) {
+                    const userAccessToken = response.accessToken;
+
+                    try {
+                      // 1. ยิง API ไปถาม Facebook เพื่อขอรายชื่อเพจและ Page Access Token ของแต่ละเพจ
+                      const fbPageUrl = `https://graph.facebook.com/v20.0/me/accounts?access_token=${userAccessToken}`;
+                      const fbResponse = await fetch(fbPageUrl);
+                      const fbData = await fbResponse.json();
+
+                      if (fbData.data && fbData.data.length > 0) {
+                        // ในที่นี้สมมติว่าเลือกเพจแรกที่เจอ หรือเพจที่แมตช์ (ท่านสามารถทำระบบให้เลือกเพจได้)
+                        const selectedPage = fbData.data[0]; 
+                        const realPageAccessToken = selectedPage.access_token; // 🔑 นี่คือราชาโทเค็นของเพจตัวจริง!
+                        const pageId = selectedPage.id;
+
+                        setConnectedPages(fbData.data);
+
+                        // 2. บันทึก "Page Access Token" ตัวจริงและรหัสเพจลง Firestore
+                        if (user) {
+                          const userRef = doc(db, "users", user.uid);
+                          await updateDoc(userRef, {
+                            pageAccessToken: realPageAccessToken, // กุญแจส่งข้อความในนามเพจ
+                            facebookPageId: pageId,               // รหัสเพจสำหรับทำ Webhook ดักจับแชท
+                            updatedAt: serverTimestamp()
+                          });
+                          console.log("✅ ระบบดึงและบันทึก Page Access Token ตัวจริงลง Firebase เรียบร้อย!");
+                          alert(`เชื่อมต่อเพจ "${selectedPage.name}" สำเร็จเรียบร้อยครับ!`);
+                        }
+                      } else {
+                        alert("❌ ไม่พบเพจ Facebook ที่เชื่อมต่อกับบัญชีนี้ กรุณาตรวจสอบสิทธิ์ครับ");
                       }
+                    } catch (err) {
+                      console.error("เกิดข้อผิดพลาดในการดึง Page Token:", err);
+                      alert("เกิดข้อผิดพลาดระบบหลังบ้านในการเชื่อมต่อเพจ");
                     }
-                    
-                    alert(`พบ ${response.accounts.data.length} เพจ! กรุณาติ๊กเลือกเพจด้านล่างเพื่อเชื่อมต่อครับ`);
                   } else {
-                    alert("คุณยังไม่ได้อนุญาตสิทธิ์เข้าถึงเพจ หรือคุณไม่มีเพจครับ");
+                    alert("การล็อกอิน Facebook ล้มเหลว หรือไม่ได้รับสิทธิ์");
                   }
                 }}
                 render={renderProps => (
