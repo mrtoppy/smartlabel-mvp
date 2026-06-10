@@ -1336,7 +1336,7 @@ if (!user && !isAuthView) {
             <span className="animate-float inline-block">📦</span> SmartLabel
           </div>
           <div className="flex gap-4 items-center">
-            <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-slate-500 font-bold hover:text-blue-600 transition-colors hidden lg:block">🤝 Partner Program</button>
+            {/*<button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-slate-500 font-bold hover:text-blue-600 transition-colors hidden lg:block">🤝 Partner Program</button>*/}
             <div className="h-6 w-px bg-slate-200 hidden lg:block"></div>
             <button onClick={() => setIsAuthView(true)} className="btn-cute bg-white text-blue-600 border-2 border-blue-600 px-6 py-2 rounded-xl font-bold">เข้าสู่ระบบ</button>
             <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg shadow-blue-500/30">สมัครฟรี</button>
@@ -1484,7 +1484,7 @@ if (!user && !isAuthView) {
               <p className="text-slate-400 text-xs font-medium">© 2026 ToppySmart Logistics. All rights reserved. <br/>พัฒนาร่วมกับ CTO Copilot</p>
             </div>
             <div className="flex gap-6">
-               <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-sm text-blue-600 font-black hover:underline flex items-center gap-2">🤝 Partner Login</button>
+               <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-sm text-blue-600 font-black hover:underline flex items-center gap-2">🤝 Partner Program</button>
             </div>
           </div>
         </footer>
