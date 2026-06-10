@@ -1332,14 +1332,21 @@ if (!user && !isAuthView) {
         
         {/* 🧭 Navbar */}
         <nav className="flex justify-between items-center px-6 md:px-12 py-6 border-b bg-white/80 backdrop-blur-md sticky top-0 z-50">
-          <div className="text-2xl font-black text-blue-800 flex items-center gap-2">
+          {/*<div className="text-2xl font-black text-blue-800 flex items-center gap-2">
             <span className="animate-float inline-block">📦</span> SmartLabel
+          </div>*/}{/* 🧭 Logo เดิม */}
+          <div className="flex items-center">
+            <img 
+              src="/LogoSmartLabel.png" // 🔑 ใช้ไฟล์ใหม่ที่ปรับสัดส่วนแล้ว
+              alt="ToppySmart SmartLabel Logo" 
+              className="h-14 md:h-16 w-auto object-contain hover:scale-105 transition-transform duration-300"
+            />
           </div>
           <div className="flex gap-4 items-center">
             {/*<button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-slate-500 font-bold hover:text-blue-600 transition-colors hidden lg:block">🤝 Partner Program</button>*/}
             <div className="h-6 w-px bg-slate-200 hidden lg:block"></div>
             <button onClick={() => setIsAuthView(true)} className="btn-cute bg-white text-blue-600 border-2 border-blue-600 px-6 py-2 rounded-xl font-bold">เข้าสู่ระบบ</button>
-            <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg shadow-blue-500/30">สมัครฟรี</button>
+            {/*<button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg shadow-blue-500/30">สมัครฟรี</button>*/}
           </div>
         </nav>
         
