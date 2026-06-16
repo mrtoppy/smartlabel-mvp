@@ -1227,8 +1227,8 @@ const handleExportCSV = () => {
       let quotaToAdd = selectedPackage;
 
       // 1. ตรวจสอบยอดเงินตามแพ็กเกจที่เลือก
-      if (selectedPackage === 100) amount = 50;
-      else if (selectedPackage === 500) amount = 200;
+      if (selectedPackage === 500) amount = 200;
+      else if (selectedPackage === 2000) amount = 500;
       else if (selectedPackage === 10000) amount = 1000;
 
       // 2. สร้างใบคำขอ (Pending Request) ไปที่คอลเลกชัน topup_requests
@@ -1249,7 +1249,7 @@ const handleExportCSV = () => {
       // ปิดหน้าต่างและเคลียร์ค่า
       setIsTopupOpen(false);
       setSlipImage(null);
-      setSelectedPackage(100); 
+      setSelectedPackage(500); 
 
     } catch (error) {
       console.error("Error submitting topup request:", error);
@@ -1339,7 +1339,7 @@ if (!user && !isAuthView) {
             <img 
               src="/LogoSmartLabel.png" // 🔑 ใช้ไฟล์ใหม่ที่ปรับสัดส่วนแล้ว
               alt="ToppySmart SmartLabel Logo" 
-              className="h-14 md:h-16 w-auto object-contain hover:scale-105 transition-transform duration-300"
+              className="h-21 md:h-24 w-auto object-contain hover:scale-105 transition-transform duration-300"
             />
           </div>
           <div className="flex gap-4 items-center">
@@ -1411,12 +1411,12 @@ if (!user && !isAuthView) {
             <p className="text-slate-500 mb-16 font-medium">ประหยัดเวลาแอดมินวันละหลายชั่วโมง เลือกแพ็กเกจที่ใช่สำหรับสเกลร้านคุณ</p>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
-              {/* แพ็กเกจ 50 บาท */}
+              {/* แพ็กเกจ 200 บาท */}
               <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200 card-hover flex flex-col">
                 <div className="mb-8">
                   <p className="text-slate-400 font-black mb-2 tracking-widest uppercase text-xs">Standard</p>
-                  <p className="text-5xl font-black mb-2 text-slate-800">฿50</p>
-                  <p className="text-slate-400 text-sm font-bold">ได้รับ 100 จ่าหน้า (0.5 บ./ใบ)</p>
+                  <p className="text-5xl font-black mb-2 text-slate-800">฿200</p>
+                  <p className="text-slate-400 text-sm font-bold">ได้รับ 500 จ่าหน้า (0.4 บ./ใบ)</p>
                 </div>
                 <ul className="text-sm text-slate-600 mb-10 space-y-4 flex-grow font-medium">
                   <li className="flex items-center gap-2">✅ ระบบสกัดที่อยู่จากแชทคีย์มือ</li>
@@ -1445,12 +1445,12 @@ if (!user && !isAuthView) {
                 <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-5 rounded-2xl bg-blue-600 text-white font-black shadow-xl shadow-blue-500/40">อัปเกรดเป็นระดับโปร</button>
               </div>
 
-              {/* แพ็กเกจ 200 บาท */}
+              {/* แพ็กเกจ 500 บาท */}
               <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200 card-hover flex flex-col">
                 <div className="mb-8">
                   <p className="text-indigo-500 font-black mb-2 tracking-widest uppercase text-xs">Popular</p>
-                  <p className="text-5xl font-black mb-2 text-slate-800">฿200</p>
-                  <p className="text-slate-400 text-sm font-bold">ได้รับ 500 จ่าหน้า (0.4 บ./ใบ)</p>
+                  <p className="text-5xl font-black mb-2 text-slate-800">฿500</p>
+                  <p className="text-slate-400 text-sm font-bold">ได้รับ 2,000 จ่าหน้า (0.25 บ./ใบ)</p>
                 </div>
                 <ul className="text-sm text-slate-600 mb-10 space-y-4 flex-grow font-medium">
                   <li className="flex items-center gap-2">✅ ระบบสกัดที่อยู่จากแชทคีย์มือ</li>
@@ -1491,7 +1491,7 @@ if (!user && !isAuthView) {
               <p className="text-slate-400 text-xs font-medium">© 2026 ToppySmart Logistics. All rights reserved. <br/>พัฒนาร่วมกับ CTO Copilot</p>
             </div>
             <div className="flex gap-6">
-               <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-sm text-blue-600 font-black hover:underline flex items-center gap-2">🤝 Partner Program</button>
+               <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-sm text-blue-600 font-black hover:underline flex items-center gap-2">🤝 ร่วมเป็นพาร์ทเนอร์กับเรา สมัครหรือเข้าใช้งานที่นี่</button>
             </div>
           </div>
         </footer>
@@ -1892,18 +1892,18 @@ if (!user && isAuthView) {
 
             <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span> เลือกแพ็กเกจสุดคุ้ม</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              {/* แพ็กเกจ 100 ใบ */}
-              <div onClick={() => setSelectedPackage(100)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 100 ? 'border-slate-500 bg-slate-50 scale-[1.03] shadow-md shadow-slate-500/20' : 'border-gray-200 hover:border-slate-300 hover:bg-slate-50'}`}>
-                {selectedPackage === 100 && <div className="absolute top-0 right-0 bg-slate-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">เลือกอยู่</div>}
-                <p className={`font-black text-xl ${selectedPackage === 100 ? 'text-slate-700' : 'text-slate-700'}`}>100 ใบ</p>
-                <p className="text-xs text-slate-500 mt-1 font-medium">50 บาท</p>
-              </div>
-              
               {/* แพ็กเกจ 500 ใบ */}
-              <div onClick={() => setSelectedPackage(500)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 500 ? 'border-blue-500 bg-blue-50 scale-[1.03] shadow-md shadow-blue-500/20' : 'border-gray-200 hover:border-blue-300 hover:bg-slate-50'}`}>
-                {selectedPackage === 500 && <div className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">ยอดฮิต 🔥</div>}
-                <p className={`font-black text-xl ${selectedPackage === 500 ? 'text-blue-700' : 'text-slate-700'}`}>500 ใบ</p>
+              <div onClick={() => setSelectedPackage(500)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 500 ? 'border-slate-500 bg-slate-50 scale-[1.03] shadow-md shadow-slate-500/20' : 'border-gray-200 hover:border-slate-300 hover:bg-slate-50'}`}>
+                {selectedPackage === 500 && <div className="absolute top-0 right-0 bg-slate-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">เลือกอยู่</div>}
+                <p className={`font-black text-xl ${selectedPackage === 500 ? 'text-slate-700' : 'text-slate-700'}`}>500 ใบ</p>
                 <p className="text-xs text-slate-500 mt-1 font-medium">200 บาท</p>
+              </div>
+
+              {/* แพ็กเกจ 2,000 ใบ */}
+              <div onClick={() => setSelectedPackage(2000)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 2000 ? 'border-blue-500 bg-blue-50 scale-[1.03] shadow-md shadow-blue-500/20' : 'border-gray-200 hover:border-blue-300 hover:bg-slate-50'}`}>
+                {selectedPackage === 2000 && <div className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">ยอดฮิต 🔥</div>}
+                <p className={`font-black text-xl ${selectedPackage === 2000 ? 'text-blue-700' : 'text-slate-700'}`}>2,000 ใบ</p>
+                <p className="text-xs text-slate-500 mt-1 font-medium">500 บาท</p>
               </div>
 
               {/* 💎 แพ็กเกจ Premium 10,000 ใบ */}
@@ -1920,14 +1920,14 @@ if (!user && isAuthView) {
               <div className="bg-white p-3 rounded-xl shadow-sm mb-3 border border-slate-100">
                 {/* 🎯 สลับยอดเงิน QR Code ให้ตรงกับ 3 แพ็กเกจ */}
                 <QRCodeSVG 
-                  value={generatePayload("0874484448", { amount: selectedPackage === 100 ? 50 : selectedPackage === 500 ? 200 : 1000 })} 
+                  value={generatePayload("0874484448", { amount: selectedPackage === 500 ? 200 : selectedPackage === 2000 ? 500 : 1000 })} 
                   size={130} 
                 />
               </div>
               <p className="text-sm font-black text-slate-800">พร้อมเพย์: ท็อปปี้สมาร์ท โลจิสติกส์</p>
               <p className="text-lg font-black text-emerald-600 mt-1 bg-emerald-50 px-4 py-1 rounded-full border border-emerald-100">
                 {/* 🎯 สลับข้อความยอดชำระให้ตรงกัน */}
-                ยอดชำระ: ฿{selectedPackage === 100 ? '50.00' : selectedPackage === 500 ? '200.00' : '1,000.00'}
+                ยอดชำระ: ฿{selectedPackage === 500 ? '200.00' : selectedPackage === 2000 ? '500.00' : '1,000.00'}
               </p>
             </div>
 
