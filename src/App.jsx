@@ -1217,117 +1217,169 @@ const handleExportCSV = () => {
   // นำเข้า Timestamp จาก firebase/firestore ด้วยนะครับ (ถ้ายังไม่มี)
   // import { doc, getDoc, updateDoc, Timestamp } from "firebase/firestore";
 
-  // 🚀 ฟังก์ชันส่งข้อมูลแจ้งโอนเงิน ฉบับเสถียรสูงสุดสำหรับรันบน Vercel (Production Mode)
+  // 🚀 ฟังก์ชันส่งข้อมูลแจ้งโอนเงิน (เวอร์ชันแก้ไขบั๊กข้อมูลเพี้ยน + ยิง Telegram บน Vercel ผ่าน 100%)
   const handleSubmitTopup = async () => {
-    if (!slipImage) return;
+    if (!slipImage) {
+      alert("กรุณาอัปโหลดรูปภาพสลิปก่อนครับ");
+      return;
+    }
     
     try {
-      setIsUploading(true); // เปิดเอฟเฟกต์หมุนรอโหลด ป้องกันคนกดปุ่มซ้ำ
+      setIsUploading(true);
       
       const currentStoreName = storeProfile?.name || "ร้านค้าสมาชิก SmartLabel";
+      
+      // ดักจับและคำนวณราคา/จำนวนใบ ให้แม่นยำตรงกับแพ็กเกจที่เลือก
+      let amountPaid = 0;
+      let labelCount = 0;
+      let packageName = "Standard";
 
-      // (1) สั่งบันทึกข้อมูลลง Firestore (อันนี้ทำงานได้ปกติบน Vercel)
+      if (selectedPackage === 500) {
+        amountPaid = 200;
+        labelCount = 500;
+        packageName = "Standard (500 ใบ)";
+      } else if (selectedPackage === 2000) {
+        amountPaid = 500;
+        labelCount = 2000;
+        packageName = "🔥 Popular (2,000 ใบ)";
+      } else if (selectedPackage === 10000) {
+        amountPaid = 1000;
+        labelCount = 10000;
+        packageName = "💎 Ultimate Premium (10,000 ใบ)";
+      }
+
+      // (1) บันทึกข้อมูลลง Firestore ให้โครงสร้างฟิลด์ตรงกับหน้า SuperAdmin 100%
       const topupRef = await addDoc(collection(db, "topup_requests"), {
         userId: user.uid,
         userEmail: user.email || "ไม่ระบุอีเมล",
         storeName: currentStoreName,
-        packagePackage: selectedPackage,
-        amount: selectedPackage === 500 ? 200 : selectedPackage === 2000 ? 500 : 1000,
-        slipImage: slipImage, // 🚨 เปลี่ยนจาก slipUrl เป็น slipImage ให้ตรงกับโครงสร้างที่ SuperAdmin ใช้เปิดดูรูปครับ!
+        package: packageName,      // ส่งชื่อแพ็กเกจไปแสดงผล
+        amount: amountPaid,        // จำนวนเงิน 200/500/1000
+        labelCount: labelCount,    // จำนวนใบที่จะเพิ่มให้ระบบเมื่ออนุมัติ
+        slipImage: slipImage,      // ลิงก์รูปภาพสลิป
         status: "pending",
         timestamp: serverTimestamp()
       });
 
-      console.log("บันทึกข้อมูลลงคลาวด์สำเร็จ ID:", topupRef.id);
+      console.log("บันทึก Firestore สำเร็จ ID:", topupRef.id);
 
-      // (2) 📡 แก้ปม CORS บน Vercel: ส่งสัญญาณผ่านสคริปต์ No-Cors Gateway 
+      // (2) 📡 ยิงเข้า Telegram ด้วยวิธีห่อ URL (ทลายกำแพง CORS บน Vercel)
       const TELEGRAM_BOT_TOKEN = "8781734272:AAFngphg8npXdgYpegDvVqxSCx98t8K1DJc"; 
       const TELEGRAM_CHAT_ID = "-5548697561"; 
-
-      const packageName = selectedPackage === 10000 ? "💎 Ultimate Premium" : selectedPackage === 2000 ? "🔥 Popular" : "Standard";
-      const amountPaid = selectedPackage === 500 ? 200 : selectedPackage === 2000 ? 500 : 1000;
       
       const messageText = 
         `🚨 *มียอดแจ้งโอนเงินเข้ามาใหม่! [SmartLabel]*\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `🏪 *ร้านค้า:* ${currentStoreName}\n` +
         `📧 *อีเมล:* ${user.email || 'ไม่ระบุ'}\n` +
-        `📦 *แพ็กเกจ:* ${packageName} (${selectedPackage.toLocaleString()} ใบ)\n` +
+        `📦 *แพ็กเกจ:* ${packageName}\n` +
         `💰 *ยอดเงินโอน:* ฿${amountPaid.toLocaleString()}.00 บาท\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
-        `🔍 *ระบบอัปโหลดใบเสร็จเรียบร้อย กรุณาตรวจสอบสลิปและกดอนุมัติที่หน้า SuperAdmin ครับ*`;
+        `🔍 *กรุณาตรวจสอบและอนุมัติที่หน้า SuperAdmin*`;
 
-      // 👑 ไม้ตายทลาย CORS: ยิง Fetch แบบโหมด 'no-cors' เพื่อไม่ให้เบราว์เซอร์บน Vercel สั่งเตะบล็อกระบบ
-      const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+      // ใช้ยิงผ่านท่อโบราณแต่โคตรเสถียรด้วย GET/POST URL String
+      const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(messageText)}&parse_mode=Markdown`;
       
-      fetch(telegramUrl, {
-        method: 'POST',
-        mode: 'no-cors', // 👈 เพิ่มบรรทัดนี้เข้ามาเพื่อปลดล็อกกำแพง CORS บนโดเมนจริง!
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: TELEGRAM_CHAT_ID,
-          text: messageText,
-          parse_mode: "Markdown"
-        })
-      }).catch(err => console.log("Telegram fallback background send"));
+      await fetch(telegramUrl).catch(err => console.log("Telegram send background error:", err));
 
-      // บันทึกและล้างค่าเสร็จพิธี
-      alert("🚀 ส่งหลักฐานการชำระเงินสำเร็จเรียบร้อย! ระบบกำลังทำการตรวจสอบสลิปของท่านค่ะ");
+      alert("🚀 ส่งหลักฐานการชำระเงินสำเร็จเรียบร้อย! ระบบกำลังตรวจสอบสลิปค่ะ");
       setIsTopupOpen(false);
       setSlipImage(null);
 
     } catch (error) {
-      console.error("เกิดข้อผิดพลาดบนเซิร์ฟเวอร์จริง:", error);
-      alert("เกิดข้อผิดพลาดในการส่งข้อมูล กรุณาลองใหม่อีกครั้งครับ");
+      console.error("เกิดข้อผิดพลาดเซิร์ฟเวอร์:", error);
+      alert("เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้งครับ");
     } finally {
       setIsUploading(false);
     }
   };
 
-  const handleApproveTopup = async (requestId, targetUserId, quotaToAdd, amount) => {
-      try {
-        // 1. ดึงข้อมูลผู้ใช้ที่จะเติมเงินให้
-        const userRef = doc(db, "users", targetUserId);
-        const userSnap = await getDoc(userRef);
+// 🟢 ฟังก์ชันอนุมัติเติมโควตาฉบับแก้บั๊กสกัดตัวเลข และบันทึกตรงถัง users ชัวร์ ๆ
+  const handleApproveTopup = async (request) => {
+    if (!request || !request.data) return;
+    
+    if (!window.confirm(`คุณแน่ใจใช่หรือไม่ที่จะ "อนุมัติ" รายการเติมเงินของร้าน: ${request.data.storeName || 'ร้านค้าสมาชิก'}`)) return;
 
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          let newQuota = (userData.quota || 0) + quotaToAdd;
-          let newPlan = userData.plan || "Basic";
-          
-          let expireDate = userData.premiumExpireDate ? userData.premiumExpireDate.toDate() : new Date();
-          const now = new Date();
+    try {
+      const targetUserId = request.data.userId;
+      const amountPaid = Number(request.data.amount) || 0;
+      
+      // 🎯 แก้บั๊กแกะสลักจำนวนใบ: ดึงค่า labelCount ตัวเลขตรง ๆ จากฐานข้อมูล 
+      // หากไม่มี ให้ถอดรูปจากข้อความ package (เช่น "Standard (500 ใบ)" ให้ดึง 500)
+      let quotaToAdd = Number(request.data.labelCount) || 0;
+      if (quotaToAdd === 0 && request.data.package) {
+        const extractedNum = request.data.package.match(/\d+/);
+        quotaToAdd = extractedNum ? Number(extractedNum[0]) : 0;
+      }
+      
+      // ถ้าแกะแล้วยังเป็น 0 ให้ดักสิทธิ์ตามสเกลราคาเพื่อความปลอดภัยสูงสุด
+      if (quotaToAdd === 0) {
+        quotaToAdd = amountPaid === 1000 ? 10000 : amountPaid === 500 ? 2000 : 500;
+      }
 
-          // 🟢 ถ้าเป็นยอด 1,000 บาท ให้เปิด/ต่ออายุ Premium
-          if (amount === 1000) {
-            newPlan = "Premium";
-            if (expireDate > now) {
-              expireDate.setDate(expireDate.getDate() + 30); // ทบวัน
-            } else {
-              expireDate = new Date();
-              expireDate.setDate(expireDate.getDate() + 30); // เริ่มใหม่
-            }
+      console.log(`กำลังดำเนินการเติมโควตาจำนวน: ${quotaToAdd} ใบ ให้รหัสผู้ใช้: ${targetUserId}`);
+
+      // 1. วิ่งไปเปิดถังพิกัด "users" ของร้านค้าคนนั้นเพื่อบวกแต้มโควตา
+      const userRef = doc(db, "users", targetUserId);
+      const userSnap = await getDoc(userRef);
+
+      if (userSnap.exists()) {
+        const userData = userSnap.data();
+        let currentQuota = Number(userData.quota) || 0;
+        let newQuota = currentQuota + quotaToAdd;
+        let newPlan = userData.plan || "Free";
+        
+        let expireDate = userData.premiumExpireDate ? userData.premiumExpireDate.toDate() : new Date();
+        const now = new Date();
+
+        // 💎 ถ้าสลิปนี้มียอดเงิน 1,000 บาท ให้สับท่อเลื่อนขั้นเป็น Premium ทันที
+        if (amountPaid === 1000) {
+          newPlan = "Premium";
+          if (expireDate > now) {
+            expireDate.setDate(expireDate.getDate() + 30); // ทบวันเพิ่มให้
+          } else {
+            expireDate = new Date();
+            expireDate.setDate(expireDate.getDate() + 30); // เริ่มนับหนึ่งใหม่
           }
-
-          // 2. อัปเดตข้อมูลให้แม่ค้า (ผู้รับเงิน)
-          await updateDoc(userRef, {
-            quota: newQuota,
-            plan: newPlan,
-            premiumExpireDate: newPlan === "Premium" ? Timestamp.fromDate(expireDate) : (userData.premiumExpireDate || null)
-          });
-
-          // 3. เปลี่ยนสถานะบิลเป็น Approved เพื่อให้หายไปจากหน้าจอตรวจสอบ
-          await updateDoc(doc(db, "topup_requests", requestId), {
-            status: "approved",
-            approvedAt: serverTimestamp(),
-            approvedBy: user.email
-          });
-
-          alert("✅ อนุมัติยอดเงินและเติมโควต้าเรียบร้อยแล้วครับ!");
         }
+
+        // บันทึกเพิ่มแต้มลง Firestore ถังหลัก
+        await updateDoc(userRef, {
+          quota: newQuota,
+          plan: newPlan,
+          premiumExpireDate: newPlan === "Premium" ? Timestamp.fromDate(expireDate) : (userData.premiumExpireDate || null)
+        });
+
+        // 2. เปลี่ยนสถานะของบิลแจ้งโอนนี้ให้กลายเป็นอนุมัติแล้ว เพื่อเคลียร์หน้าจอ SuperAdmin
+        await updateDoc(doc(db, "topup_requests", request.id), {
+          status: "approved",
+          approvedAt: serverTimestamp(),
+          approvedBy: user?.email || "SuperAdmin"
+        });
+
+        alert(`🎉 อนุมัติสำเร็จ! ระบบเติมแต้ม +${quotaToAdd.toLocaleString()} จ่าหน้า และปรับสถานะร้านค้าเรียบร้อยครับ`);
+      } else {
+        alert("❌ ไม่พบข้อมูลบัญชีผู้ใช้ร้านค้านี้ในระบบ Firestore ถัง users ครับ");
+      }
+    } catch (error) {
+      console.error("เกิดข้อผิดพลาดในการอนุมัติค่ายกล:", error);
+      alert("เกิดข้อผิดพลาดในการเซฟข้อมูล กรุณาตรวจสอบ Console ครับ");
+    }
+  };
+
+    const handleRejectTopup = async (requestId) => {
+      if (!window.confirm("คุณแน่ใจใช่หรือไม่ที่จะ 'ไม่อนุมัติ' รายการแจ้งโอนเงินนี้?")) return;
+      
+      try {
+        const docRef = doc(db, "topup_requests", requestId);
+        await updateDoc(docRef, {
+          status: "rejected",
+          rejectedAt: serverTimestamp()
+        });
+        alert("❌ ปฏิเสธรายการเรียบร้อยแล้ว ระบบจะไม่เพิ่มจำนวนใบให้ร้านค้านี้ครับ");
       } catch (error) {
-        console.error("Error approving topup:", error);
-        alert("เกิดข้อผิดพลาดในการอนุมัติครับ");
+        console.error("Error rejecting:", error);
+        alert("เกิดข้อผิดพลาดในการทำรายการ");
       }
     };
 
@@ -2727,7 +2779,21 @@ if (!user && isAuthView) {
                       <div className="text-right"><p className="text-xs text-slate-500 font-bold mb-1 uppercase tracking-widest">ยอดโอน</p><p className="font-black text-emerald-600 text-xl">฿{req.data.amount}</p></div>
                     </div>
                   </div>
-                  <button onClick={() => handleApproveTopup(req.id, req.data.userId, req.data.package, req.data.amount)} className="btn-cute w-full bg-emerald-500 text-white font-black py-4 rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 text-lg">✅ ยืนยันว่ายอดเงินเข้าแล้ว</button>
+                  {/* 🟢 ค่ายกลจัดระเบียบปุ่มเรียงหน้ากระดานข้างกัน + แก้อาการส่งค่าเพี้ยน */}
+                  <div className="flex flex-row items-center gap-3 mt-4">
+                    <button 
+                      onClick={() => handleApproveTopup(req)} 
+                      className="btn-cute flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 text-sm whitespace-nowrap"
+                    >
+                      ✅ อนุมัติยอดเงิน
+                    </button>
+                    <button 
+                      onClick={() => handleRejectTopup(req.id)} 
+                      className="btn-cute bg-rose-100 hover:bg-rose-600 text-rose-600 hover:text-white font-bold py-3 px-4 rounded-xl transition-colors text-sm whitespace-nowrap"
+                    >
+                      ❌ ไม่อนุมัติ
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
