@@ -1217,45 +1217,70 @@ const handleExportCSV = () => {
   // นำเข้า Timestamp จาก firebase/firestore ด้วยนะครับ (ถ้ายังไม่มี)
   // import { doc, getDoc, updateDoc, Timestamp } from "firebase/firestore";
 
-  // 🚀 ฟังก์ชันส่งคำขอเติมเงิน (แบบใหม่: ส่งบิลไปรออนุมัติ)
+  // 🚀 ฟังก์ชันส่งคำขอเติมเงิน (แบบใหม่: ส่งบิลไปรออนุมัติใน Telegram)
   const handleSubmitTopup = async () => {
     if (!slipImage) return;
     
-    setIsUploading(true);
     try {
-      let amount = 0;
-      let quotaToAdd = selectedPackage;
+      // 🎯 ดักจับชื่อร้านค้าให้ถูกต้อง: ดึงจาก storeProfile.name ถ้าไม่มีให้ใช้ "ร้านค้าสมาชิก"
+      const currentStoreName = storeProfile?.name || "ร้านค้าสมาชิก SmartLabel";
 
-      // 1. ตรวจสอบยอดเงินตามแพ็กเกจที่เลือก
-      if (selectedPackage === 500) amount = 200;
-      else if (selectedPackage === 2000) amount = 500;
-      else if (selectedPackage === 10000) amount = 1000;
-
-      // 2. สร้างใบคำขอ (Pending Request) ไปที่คอลเลกชัน topup_requests
-      // แทนที่จะอัปเดตโควต้าตัวเองทันที เราจะส่งใบสั่งซื้อไปให้แอดมินตรวจครับ
-      await addDoc(collection(db, "topup_requests"), {
+      // (1) สั่งบันทึกข้อมูลคำขอเติมโควต้าลงคอลเลกชัน topup_requests ใน Firestore
+      const topupRef = await addDoc(collection(db, "topup_requests"), {
         userId: user.uid,
-        userEmail: user.email,
-        amount: amount,
-        package: selectedPackage,
-        slipImage: slipImage, // URL รูปสลิปที่อัปโหลดแล้ว
-        status: "pending",    // สถานะ: รอตรวจสอบ
-        timestamp: serverTimestamp(),
-        planRequested: amount === 1000 ? "Premium" : "Basic"
+        userEmail: user.email || "ไม่ระบุอีเมล",
+        storeName: currentStoreName, // 🔑 แก้ไขตัวแปรให้ตรงกับระบบจริงแล้ว
+        packagePackage: selectedPackage, 
+        amount: selectedPackage === 500 ? 200 : selectedPackage === 2000 ? 500 : 1000,
+        slipUrl: slipImage,
+        status: "pending",
+        timestamp: serverTimestamp()
       });
 
-      alert("🚀 ส่งหลักฐานการโอนเงินเรียบร้อยแล้ว! \nกรุณารอแอดมินตรวจสอบและอนุมัติโควต้าสักครู่นะครับ");
+      console.log("บันทึกคำขอลง Firebase สำเร็จ ID:", topupRef.id);
+
+      // (2) ⚡ [ค่ายกลเสริมทัพ] ยิงข้อความแจ้งเตือนดีดตรงเข้ามือถือผ่าน Telegram บอททันที
+      // 🔑 รหัส Token และ Chat ID ของท่านเซ็ตติ้งไว้ถูกต้องสมบูรณ์แล้วครับ
+      const TELEGRAM_BOT_TOKEN = "8781734272:AAFngphg8npXdgYpegDvVqxSCx98t8K1DJc"; 
+      const TELEGRAM_CHAT_ID = "-5548697561"; 
+
+      // ประกอบโครงสร้างข้อความสีสันสวยงาม อ่านง่าย สรุปยอดเงินชัดเจน
+      const packageName = selectedPackage === 10000 ? "💎 Ultimate Premium" : selectedPackage === 2000 ? "🔥 Popular" : "Standard";
+      const amountPaid = selectedPackage === 500 ? 200 : selectedPackage === 2000 ? 500 : 1000;
       
-      // ปิดหน้าต่างและเคลียร์ค่า
+      const messageText = 
+        `🚨 *มียอดแจ้งโอนเงินเข้ามาใหม่! [SmartLabel]*\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `🏪 *ร้านค้า:* ${currentStoreName}\n` +
+        `📧 *อีเมล:* ${user.email || 'ไม่ระบุ'}\n` +
+        `📦 *แพ็กเกจ:* ${packageName} (${selectedPackage.toLocaleString()} ใบ)\n` +
+        `💰 *ยอดเงินโอน:* ฿${amountPaid.toLocaleString()}.00 บาท\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `🔍 *ระบบอัปโหลดใบเสร็จเรียบร้อย กรุณาตรวจสอบสลิปและกดอนุมัติที่หน้า SuperAdmin ครับ*`;
+
+      // ยิงคำสั่งข้ามมิติไปหาเซิร์ฟเวอร์ Telegram โดยตรงผ่าน Fetch
+      const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+      
+      await fetch(telegramUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: TELEGRAM_CHAT_ID,
+          text: messageText,
+          parse_mode: "Markdown" 
+        })
+      });
+
+      console.log("✅ ยิงแจ้งเตือนเข้า Telegram สำเร็จ!");
+      
+      // ล้างค่าสถานะและปิดหน้าต่างเมื่อเสร็จพิธี
+      alert("🚀 ส่งหลักฐานการชำระเงินสำเร็จเรียบร้อย! ระบบกำลังทำการตรวจสอบสลิปของท่านค่ะ");
       setIsTopupOpen(false);
       setSlipImage(null);
-      setSelectedPackage(500); 
 
     } catch (error) {
-      console.error("Error submitting topup request:", error);
-      alert("เกิดข้อผิดพลาดในการส่งข้อมูลครับ กรุณาลองใหม่อีกครั้ง");
-    } finally {
-      setIsUploading(false);
+      console.error("เกิดข้อผิดพลาดในค่ายกลแจ้งโอนเงิน:", error);
+      alert("เกิดข้อผิดพลาดในการส่งข้อมูล กรุณาลองใหม่อีกครั้งครับ");
     }
   };
 
