@@ -1773,6 +1773,10 @@ if (!user && isAuthView) {
                   </button>
                 </div>
               </div>
+              {/* ปุ่ม Submit */}
+              <button type="submit" className={`btn-cute w-full text-white font-bold py-3.5 rounded-xl shadow-lg ${authType === 'partner' ? 'bg-indigo-600 hover:shadow-indigo-500/50' : 'bg-blue-600 hover:shadow-blue-500/50'}`}>
+                {authMode === 'login' ? 'เข้าสู่ระบบ' : '✨ สมัครสมาชิกฟรี'}
+              </button>
             </form>
 
             {/* ส่วน Footer */}
