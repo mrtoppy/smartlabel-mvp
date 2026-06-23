@@ -205,6 +205,9 @@ export default function App() {
 
   const [dashboardStats, setDashboardStats] = useState({ totalOrders: 0, codOrders: 0, totalCodAmount: 0, pieData: [], barData: [] });
   const [billingRequests, setBillingRequests] = useState([]);
+
+  const [historyRequests, setHistoryRequests] = useState([]); // 📜 เก็บประวัติบิลที่ Approved / Rejected แล้ว
+  const [totalRevenue, setTotalRevenue] = useState(0);        // 💰 ยอดรวมรายได้สะสมในระบบ
   
   const [staffList, setStaffList] = useState([]);
   const [newStaff, setNewStaff] = useState({ name: '', phone: '', role: 'Staff' });
@@ -563,6 +566,42 @@ export default function App() {
         console.error("Error loading bills:", error); 
       }
     };
+
+  // 📡 🆕 ระบบดึงข้อมูลประวัติการชำระเงินย้อนหลัง (Approved & Rejected) แบบ Real-time
+  const loadTopupHistoryRequests = () => {
+    try {
+      const q = query(
+        collection(db, "topup_requests"),
+        where("status", "in", ["approved", "rejected"]) // 🎯 ดึงเฉพาะบิลที่ทำรายการเสร็จแล้ว
+      );
+
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        let revenueSum = 0;
+        const requests = snapshot.docs.map(doc => {
+          const data = doc.data();
+          // คำนวณรายได้สะสมเฉพาะบิลที่แอดมินกดอนุมัติจริงเท่านั้น
+          if (data.status === 'approved') {
+            revenueSum += Number(data.amount) || 0;
+          }
+          return { id: doc.id, ...data };
+        });
+
+        // เรียงประวัติให้อันที่ทำรายการล่าสุดอยู่บนสุดเสมอ
+        const sortedHistory = requests.sort((a, b) => 
+          (b.approvedAt?.toMillis() || b.rejectedAt?.toMillis() || 0) - 
+          (a.approvedAt?.toMillis() || a.rejectedAt?.toMillis() || 0)
+        );
+
+        setHistoryRequests(sortedHistory);
+        setTotalRevenue(revenueSum); // ส่งยอดเงินรวมขึ้นหน้าจอแดชบอร์ด
+      });
+
+      return unsubscribe;
+    } catch (error) {
+      console.error("Error loading topup history:", error);
+    }
+  };
+
   const loadStaffData = async () => {
     try {
       const q = query(collection(db, "users"), where("ownerId", "==", user.uid));
@@ -637,12 +676,34 @@ export default function App() {
     return () => unsubscribeMessage();
   }, []);*/}
   
+  // 📡 🆕 ค่ายกลดึงข้อมูลตามแท็บหน้าจอ ฉบับสมบูรณ์ (รวมหน้าพนักงาน + ท่อประวัติการเงิน SuperAdmin)
   useEffect(() => { 
+    // 💳 1. ด่าน SuperAdmin: ถ้าเปิดหน้าอนุมัติบิล ให้ปลุกท่อบิลค้าง (Pending) และท่อประวัติเงินเข้า (History) ทำงานคู่กัน
+    if (activeTab === 'billing' && userRole === 'SuperAdmin') {
+      const unsubscribePending = loadBillingRequests();
+      const unsubscribeHistory = loadTopupHistoryRequests(); // 👈 ท่อประวัติที่เพิ่มเข้ามาใหม่
+      
+      // คืนค่าล้างท่อสัญญาณเมื่อสลับแท็บ ป้องกันแรมรั่ว (Memory Leak)
+      return () => {
+        unsubscribePending && unsubscribePending();
+        unsubscribeHistory && unsubscribeHistory();
+      };
+    }
 
-    if (activeTab === 'billing' && userRole === 'SuperAdmin') loadBillingRequests();
-    if (activeTab === 'team' && userRole === 'Owner') loadStaffData();
-    if (activeTab === 'shops' && userRole === 'SuperAdmin') loadAllShopsData();
-    if (activeTab === 'affiliates' && userRole === 'SuperAdmin') loadAffiliateDataForAdmin();
+    // 👥 2. ด่าน Owner (เถ้าแก่): ถ้าเปิดหน้าพนักงาน ให้ดึงรายชื่อลูกน้องมาโชว์ (รักษาของเดิมไว้ 100%)
+    if (activeTab === 'team' && (userRole === 'Owner' || userRole === 'Admin')) {
+      loadStaffData();
+    }
+
+    // 🏢 3. ด่าน SuperAdmin: ดึงข้อมูลร้านค้าทั้งหมดในระบบ
+    if (activeTab === 'shops' && userRole === 'SuperAdmin') {
+      loadAllShopsData();
+    }
+
+    // 🤝 4. ด่าน SuperAdmin: ดึงข้อมูลระบบพาร์ทเนอร์/ตัวแทนนักการตลาด
+    if (activeTab === 'affiliates' && userRole === 'SuperAdmin') {
+      loadAffiliateDataForAdmin();
+    }
   }, [activeTab, userRole, userOwnerId]);
 
 const handleAuth = async (e) => {
@@ -2910,6 +2971,77 @@ if (!user && isAuthView) {
               <div className="col-span-full py-20 text-center text-slate-400"><span className="text-6xl mb-4 block">🎉</span><p className="text-xl font-bold">สุดยอด! ไม่มีรายการค้างตรวจสอบเลย</p></div>
             )}
           </div>
+          {/* 📜 🆕 ตารางประวัติการอนุมัติแพ็กเกจ (วางต่อท้ายกล่องตรวจสอบบิลเดิม) */}
+            <div className="col-span-full bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 mt-8 text-left animate-[fadeIn_0.4s_ease]">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                    📜 รายงานประวัติการเงินและรายการอนุมัติ
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">สมุดบัญชีดิจิทัลสรุปการทำรายการสำเร็จและรายการปฏิเสธทั้งหมดในระบบ</p>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-100 px-5 py-3 rounded-2xl flex items-center gap-2 shadow-sm self-stretch sm:self-auto justify-between">
+                  <span className="text-xs font-bold text-emerald-700">💰 รายได้รวมสะสม:</span>
+                  <span className="text-2xl font-black text-emerald-600">฿{totalRevenue.toLocaleString()}.00</span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-100 rounded-2xl shadow-inner">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50 uppercase text-xs font-black text-slate-500 tracking-wider border-b">
+                    <tr>
+                      <th className="py-4 px-6 whitespace-nowrap">วันเวลาที่ทำรายการ</th>
+                      <th className="py-4 px-6">ร้านค้าสมาชิก</th>
+                      <th className="py-4 px-6">แพ็กเกจ</th>
+                      <th className="py-4 px-6 text-right whitespace-nowrap">ยอดเงิน</th>
+                      <th className="py-4 px-6 text-center whitespace-nowrap">ผู้ดำเนินการ</th>
+                      <th className="py-4 px-6 text-center">สถานะ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {historyRequests.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="text-center py-16 text-slate-400 font-medium">
+                          🍃 ยังไม่มีประวัติการอนุมัติหรือปฏิเสธรายการในระบบ
+                        </td>
+                      </tr>
+                    ) : (
+                      historyRequests.map((history, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="py-4 px-6 text-slate-500 font-medium text-xs whitespace-nowrap">
+                            {history.approvedAt ? new Date(history.approvedAt.toDate()).toLocaleString('th-TH') : history.rejectedAt ? new Date(history.rejectedAt.toDate()).toLocaleString('th-TH') : '-'}
+                          </td>
+                          <td className="py-4 px-6">
+                            <p className="font-bold text-slate-800 text-sm">{history.storeName || "ลูกค้าทั่วไป"}</p>
+                            <p className="text-[11px] text-slate-400 font-mono mt-0.5">{history.userEmail}</p>
+                          </td>
+                          <td className="py-4 px-6">
+                            <span className="font-bold text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-md border border-indigo-100">
+                              {history.package || "Standard"}
+                            </span>
+                          </td>
+                          <td className="py-4 px-6 text-right font-black text-slate-700 text-base whitespace-nowrap">
+                            ฿{(history.amount || 0).toLocaleString()}
+                          </td>
+                          <td className="py-4 px-6 text-center font-medium text-slate-500 text-xs whitespace-nowrap">
+                            👤 {history.approvedBy || "SuperAdmin"}
+                          </td>
+                          <td className="py-4 px-6 text-center whitespace-nowrap">
+                            <span className={`px-2.5 py-1 rounded-lg text-xs font-black shadow-sm ${
+                              history.status === 'approved' 
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                                : 'bg-rose-50 text-rose-700 border border-rose-200'
+                            }`}>
+                              {history.status === 'approved' ? '✅ อนุมัติสำเร็จ' : '❌ ปฏิเสธบิล'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
         </div>
       ) : null}
     
