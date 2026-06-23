@@ -2043,18 +2043,105 @@ if (!user && isAuthView) {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 print:hidden">
           <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md animate-[fadeIn_0.3s_ease-out]" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
             <h2 className="text-2xl font-bold mb-6 text-gray-800">⚙️ ตั้งค่าข้อมูลร้านค้า</h2>
-            <div className="mb-4">
-              <label className="block text-sm font-bold text-gray-700 mb-2">ชื่อร้านค้า (ผู้ส่ง)</label>
-              <input type="text" className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all" value={tempProfile.name} onChange={(e) => setTempProfile({...tempProfile, name: e.target.value})} placeholder="กรอกชื่อร้านค้าของคุณ..." />
+            {/* 🏪 1. บล็อกชื่อร้านค้า (ผู้ส่ง) - ดีไซน์ใหม่หรูหราเข้าชุด */}
+            <div className="mb-4 text-left">
+              <label className="block text-xs font-bold text-gray-500 mb-1.5 pl-1">
+                🏪 ชื่อร้านค้า (ผู้ส่ง)
+              </label>
+              <input 
+                type="text" 
+                className="w-full border border-gray-200 bg-slate-50/50 p-2.5 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all font-medium text-slate-800" 
+                placeholder="กรอกชื่อร้านค้าของคุณ..." 
+                value={tempProfile.name || ''} 
+                onChange={(e) => setTempProfile({...tempProfile, name: e.target.value})} 
+              />
             </div>
-            <div className="mb-4">
-              <label className="block text-sm font-bold text-gray-700 mb-2">เบอร์โทรศัพท์ <span className="text-rose-500 text-xs ml-1">*จำเป็น</span></label>
-              <input type="text" className="w-full border p-3 rounded-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all bg-yellow-50 focus:bg-white" value={tempProfile.phone} onChange={(e) => setTempProfile({...tempProfile, phone: e.target.value})} placeholder="เช่น 0891234567 (ติดต่อกรณีพัสดุมีปัญหา)" />
+
+            {/* ☎️ 2. บล็อกเบอร์โทรศัพท์ร้านค้า - เนียนกริ๊บคุมโทนเดียวกัน */}
+            <div className="mb-4 text-left">
+              <label className="block text-xs font-bold text-gray-500 mb-1.5 pl-1">
+                📞 เบอร์โทรศัพท์ร้านค้า (แสดงบนใบปะหน้า)
+              </label>
+              <input 
+                type="text" 
+                className="w-full border border-gray-200 bg-slate-50/50 p-2.5 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all font-medium text-slate-800" 
+                placeholder="เช่น 081-XXXXXXX" 
+                value={tempProfile.phone || ''} 
+                onChange={(e) => setTempProfile({...tempProfile, phone: e.target.value})} 
+              />
             </div>
-            <div className="mb-8">
-              <label className="block text-sm font-bold text-gray-700 mb-2">ที่อยู่ร้านค้า <span className="text-rose-500 text-xs ml-1">*จำเป็น</span></label>
-              <textarea className="w-full border p-3 rounded-xl h-24 resize-none focus:ring-4 focus:ring-blue-100 outline-none transition-all bg-yellow-50 focus:bg-white" value={tempProfile.address} onChange={(e) => setTempProfile({...tempProfile, address: e.target.value})} placeholder="กรอกที่อยู่สำหรับจ่าหน้าผู้ส่ง หรือกรณีพัสดุตีกลับ..." />
+
+            {/* 🏠 3. บล็อกที่อยู่ร้านค้าแบบละเอียด - ดีไซน์พรีเมียม (เอาพื้นหลังสีเหลืองออกเพื่อให้กลมกลืน) */}
+            <div className="mb-4 text-left">
+              <label className="block text-xs font-bold text-gray-500 mb-1.5 pl-1">
+                🏠 ที่อยู่ร้านค้า <span className="text-rose-500 text-[10px] font-black ml-1">*จำเป็น</span>
+              </label>
+              <textarea 
+                className="w-full border border-gray-200 bg-slate-50/50 p-2.5 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all font-medium text-slate-800 h-24 resize-none" 
+                placeholder="กรอกที่อยู่สำหรับจ่าหน้าผู้ส่ง หรือกรณีพัสดุตีกลับ..." 
+                value={tempProfile.address || ''} 
+                onChange={(e) => setTempProfile({...tempProfile, address: e.target.value})} 
+              />
             </div>
+            
+            {/* 📜 กล่องตั้งค่าข้อความพิเศษและสัญญารูปแบบใหม่ (จัดระเบียบใหม่หมด ไม่ซ้ำซ้อน) */}
+            <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-left">
+              <h3 className="text-xs font-black text-blue-700 mb-2 flex items-center gap-1">
+                ✉️ ข้อความพิเศษ / ข้อมูลสัญญาส่งของ
+              </h3>
+              <p className="text-[10px] text-gray-500 mb-3">* หากกรอกข้อมูลบรรทัดที่ 1 ระบบจะเปิดกล่องข้อความพิเศษบนใบปะหน้าให้อัตโนมัติ</p>
+              
+              <div className="grid grid-cols-1 gap-3">
+                {/* แถวที่ 1: ข้อความหัวข้อหลัก */}
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-500 mb-1">ข้อความบรรทัดที่ 1 (ตัวหนา/สีน้ำเงิน)</label>
+                  <input 
+                    type="text" 
+                    className="w-full border p-2 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all" 
+                    placeholder="เช่น ชำระค่าฝากส่งรายเดือน หรือ สินค้าแตกง่าย" 
+                    value={tempProfile.specialLine1 || ''} 
+                    onChange={(e) => setTempProfile({...tempProfile, specialLine1: e.target.value})} 
+                  />
+                </div>
+
+                {/* แถวที่ 2: ข้อความรอง */}
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-500 mb-1">ข้อความบรรทัดที่ 2</label>
+                  <input 
+                    type="text" 
+                    className="w-full border p-2 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all" 
+                    placeholder="เช่น ปณท. อนุญาตแล้ว หรือ กรุณาถ่ายวิดีโอตอนเปิดกล่อง" 
+                    value={tempProfile.specialLine2 || ''} 
+                    onChange={(e) => setTempProfile({...tempProfile, specialLine2: e.target.value})} 
+                  />
+                </div>
+
+                {/* แถวที่ 3: เลขที่ใบอนุญาต และ เลขที่สัญญา */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-500 mb-1">ใบอนุญาตเลขที่ (ถ้ามี)</label>
+                    <input 
+                      type="text" 
+                      className="w-full border p-2 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all" 
+                      placeholder="เช่น 45/2569" 
+                      value={tempProfile.licenseNo || ''} 
+                      onChange={(e) => setTempProfile({...tempProfile, licenseNo: e.target.value})} 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-500 mb-1">สัญญาเลขที่ (ถ้ามี)</label>
+                    <input 
+                      type="text" 
+                      className="w-full border p-2 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all" 
+                      placeholder="เช่น ปณ.(น)/123" 
+                      value={tempProfile.contractNo || ''} 
+                      onChange={(e) => setTempProfile({...tempProfile, contractNo: e.target.value})} 
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="h-5"></div>
             {/* โซนใหม่: เชื่อมต่อเพจ Facebook */}
             <div className="mb-8 p-5 bg-indigo-50 border border-indigo-100 rounded-xl">
               <h3 className="text-sm font-bold text-indigo-800 mb-2 flex items-center gap-2">
@@ -2388,12 +2475,35 @@ if (!user && isAuthView) {
                           <span className="text-gray-500">Admin: {user?.email?.split('@')[0]}</span>
                         </div>
 
-                        {/* Sender Info (Compact) */}
-                        <div className="mb-2">
-                          <p className="text-[9px] text-gray-500 font-medium leading-none">ผู้ส่ง:</p>
-                          <p className="font-bold text-xs leading-tight">{storeProfile.name}</p>
-                        </div>
+                        {/* Sender Info (Compact) - อัปเกรดจัดแถวขนานรองรับเลขสัญญาขวาบน */}
+                        <div className="mb-2 border-b-2 border-black pb-2 flex justify-between items-start gap-2">
+                          {/* ฝั่งซ้าย: ข้อมูลชื่อและที่อยู่ละเอียดของผู้ส่ง */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[9px] text-gray-500 font-medium leading-none">ผู้ส่ง:</p>
+                            <p className="font-black text-sm leading-tight text-slate-900 mt-0.5">{storeProfile.name || "ไม่ระบุชื่อร้าน"}</p>
+                            {storeProfile.address && (
+                              <p className="text-[10px] text-slate-600 leading-tight mt-1 font-medium break-words">
+                                {storeProfile.address} {storeProfile.phone ? `โทร. ${storeProfile.phone}` : ''}
+                              </p>
+                            )}
+                          </div>
 
+                          {/* ฝั่งขวา: 📜 กล่องข้อความพิเศษ (ยืดหยุ่นสูง ปรับเปลี่ยนข้อความได้ตามใจชอบ) */}
+                          {/* เงื่อนไขใหม่: ถ้ามีการกรอกข้อความบรรทัดแรกเข้ามา ระบบจะเปิดกล่องนี้ออโต้ครับ */}
+                          {storeProfile?.specialLine1 ? (
+                            <div className="w-[125px] p-1.5 border border-black rounded-sm text-[8px] font-bold text-slate-800 leading-tight bg-slate-50/50 flex flex-col justify-center flex-shrink-0 text-left">
+                              <p className="text-[7.5px] font-black text-blue-700 border-b border-gray-300 pb-0.5 mb-0.5 uppercase tracking-wide truncate">
+                                {storeProfile.specialLine1}
+                              </p>
+                              <p className="truncate">{storeProfile.specialLine2 || ""}</p>
+                              <p className="truncate">เลขที่: {storeProfile.licenseNo || "-"}</p>
+                              <p className="truncate">สัญญา: {storeProfile.contractNo || "-"}</p>
+                            </div>
+                          ) : (
+                            // หากไม่มีการกรอกข้อมูลพิเศษ จะปล่อยโล่งสะอาดตา ไม่แสดงอะไรเลยครับ
+                            <div className="w-[125px] h-10 flex-shrink-0"></div>
+                          )}
+                        </div>
                         {/* COD Section (ถ้ามี) */}
                         {order.parsedData.isCOD && (
                           <div className="bg-black text-white text-center py-1.5 mb-2 text-xl font-black tracking-wider rounded-sm border-2 border-black">
@@ -2401,7 +2511,7 @@ if (!user && isAuthView) {
                           </div>
                         )}
 
-                        {/* Receiver Info (Adjusted size) */}
+                        {/* Receiver Info */}
                         <div className="bg-white p-2 mb-2 rounded-sm border-2 border-black">
                           <p className="text-[9px] text-blue-600 font-black mb-0.5 print:text-black">ผู้รับ:</p>
                           <p className="text-lg font-black text-slate-800 leading-none">{order.parsedData.customerName || 'ไม่มีชื่อ'}</p>
@@ -2412,21 +2522,20 @@ if (!user && isAuthView) {
                         {/* Zipcode (Highlight) */}
                         <div className="text-center text-4xl font-black mb-2 tracking-widest text-slate-900">{order.parsedData.zipcode || '00000'}</div>
 
-                        {/* 📦 ส่วนเลขพัสดุและบาร์โค้ด (ส่วนที่สำคัญที่สุด) */}
+                        {/* 📦 ส่วนเลขพัสดุและบาร์โค้ด */}
                         {order.trackingNum && (
                           <div className="flex flex-col items-center mb-2 pt-1 border-t-2 border-black">
                             <p className="text-2xl font-black tracking-widest text-black mb-1">{order.trackingNum}</p>
                             <div className="bg-white p-1">
-                              {/* ใช้ QRCode สำหรับเลขพัสดุเพื่อให้เจ้าหน้าที่ยิงง่าย */}
                               <QRCodeSVG value={order.trackingNum} size={70} />
                             </div>
                             <p className="text-[8px] mt-0.5 font-bold text-gray-500 uppercase">Thailand Post Tracking</p>
                           </div>
                         )}
 
-                        {/* 📋 ส่วนรายการสินค้า และเลข REF (Compact) */}
-                        <div className="border-t-2 border-black pt-2 flex justify-between items-start">
-                          <div className="flex-1">
+                        {/* 📋 ส่วนรายการสินค้า และพื้นที่สำหรับข้อความพิเศษ 3 บรรทัด (ไม่ตีกรอบ จัดระเบียบด้วย Flex) */}
+                        <div className="border-t-2 border-black pt-2 flex justify-between items-start gap-2">
+                          <div className="flex-1 min-w-0">
                             <p className="text-[10px] font-black text-slate-700 mb-0.5">รายการสินค้า:</p>
                             {order.parsedData.items.length > 0 ? (
                               <ul className="text-[9px] list-disc pl-3 font-medium text-slate-600 leading-tight">
@@ -2437,8 +2546,8 @@ if (!user && isAuthView) {
                             )}
                           </div>
                           
-                          {/* 🆔 แสดงเลข REF แบบตัวอักษรแทน QR เพื่อประหยัดพื้นที่ */}
-                          <div className="text-right ml-2 border-l border-gray-300 pl-2">
+                          {/* 🆔 แสดงเลข REF แบบตัวอักษรประจำตระกูล */}
+                          <div className="text-right ml-2 border-l border-gray-300 pl-2 flex-shrink-0">
                             <p className="text-[8px] font-mono uppercase font-black text-slate-400 leading-none">REF NO.</p>
                             <p className="text-[11px] font-mono font-black text-slate-800 leading-none mt-1">#{String(order.id).slice(-6)}</p>
                           </div>
