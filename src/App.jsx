@@ -474,22 +474,31 @@ export default function App() {
       }
     }, []);
 
-  // 📡 ระบบดึงข้อมูล Dashboard และ History แบบ Real-time
+  // 📡 ระบบดึงข้อมูล Dashboard และ History แบบ Real-time (ฉบับอัปเกรดแยกมิติสถิติตามสิทธิ์ผู้ใช้งาน)
   useEffect(() => {
     if (!userOwnerId || userRole === 'SuperAdmin') return; 
 
-    // 🚨 แก้บั๊ก: ชี้เป้าหมายไปที่แฟ้ม "orders" ให้ถูกต้อง
     const q = query(collection(db, "orders"), where("ownerId", "==", userOwnerId));
 
-    // ใช้ onSnapshot แทน getDocs เพื่อให้ข้อมูลไหลเข้าจอทันทีที่กดเซฟ (Real-time)
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       let total = 0, codCount = 0, codSum = 0, transferCount = 0;
       const dateMap = {}; 
-      const staffMap = {}; // 🏆 กล่องเก็บคะแนนสำหรับ Leaderboard
+      const staffMap = {}; 
       const ordersList = [];
+
+      // ดักจับอีเมลของแอดมินปัจจุบันที่กำลังล็อกอินใช้งานระบบ
+      const currentAdminEmail = user?.email || "";
 
       querySnapshot.forEach((doc) => {
         const data = doc.data(); 
+        
+        // 🛡️ [ค่ายกลกรองสถิติขั้นเทพ] 
+        // ถ้าผู้ใช้ไม่ใช่ Owner (เป็น Staff/Admin) และออเดอร์นี้ไม่ใช่ของตัวเอง -> ให้ข้ามข้ามไป ไม่นำมาคำนวณกราฟและการ์ดสรุปด้านบน
+        if (userRole !== 'Owner' && data.adminEmail !== currentAdminEmail) {
+          return; 
+        }
+
+        // ดำเนินการคำนวณเฉพาะออเดอร์ที่มีสิทธิ์มองเห็น
         ordersList.push({ id: doc.id, ...data });
         total++;
 
@@ -507,7 +516,7 @@ export default function App() {
            if (data.isCOD) dateMap[dateStr].COD += 1; else dateMap[dateStr].โอนเงิน += 1;
         }
 
-        // 🏆 เก็บแต้มพนักงานสำหรับ Leaderboard
+        // เก็บแต้มพนักงานสำหรับ Leaderboard (คำนวณสะสมตามปกติ)
         const creator = data.creatorName || data.phone || 'Owner';
         staffMap[creator] = (staffMap[creator] || 0) + 1;
       });
@@ -521,7 +530,7 @@ export default function App() {
          ชิ้นงาน: staffMap[name]
       })).sort((a, b) => b.ชิ้นงาน - a.ชิ้นงาน);
 
-      // อัปเดตข้อมูลเข้าสู่หน้าจอ
+      // อัปเดตข้อมูลเข้าสู่หน้าจอแบบ Real-time ตรงตามสิทธิ์รายบุคคล
       setHistoryOrders(ordersList);
       setDashboardStats({
         totalOrders: total, 
@@ -529,15 +538,14 @@ export default function App() {
         totalCodAmount: codSum,
         pieData: [{ name: 'โอนเงินแล้ว', value: transferCount }, { name: 'เก็บเงินปลายทาง', value: codCount }],
         barData: Object.values(dateMap).sort((a, b) => new Date(a.name) - new Date(b.name)) || [{ name: 'รอข้อมูลใหม่', โอนเงิน: 0, COD: 0 }],
-        staffData: staffLeaderboard // 👈 โยนข้อมูลให้กราฟ Gamification
+        staffData: staffLeaderboard 
       });
     }, (error) => { 
         console.error("Dashboard Real-time Error:", error); 
     });
 
-    // คืนค่าฟังก์ชันยกเลิกการดึงข้อมูลเมื่อสลับหน้าจอ (ลดภาระเซิร์ฟเวอร์)
     return () => unsubscribe();
-  }, [userOwnerId, userRole]);
+  }, [userOwnerId, userRole, user?.email]); // เพิ่ม user?.email เข้าไปใน dependency เพื่อความแม่นยำตอนสลับบัญชี
 
   const loadBillingRequests = () => {
       try {
@@ -955,7 +963,13 @@ const handleAuth = async (e) => {
       }
     };
 
-// 🔑 1. ฟังก์ชันขอ Token เพื่อเข้าถึงระบบ Preload [cite: 46, 189, 237]
+  // 📖 ฟังก์ชันเรียกเปิดคู่มือการใช้งานอัจฉริยะซ้ำได้ตลอดเวลา
+  const handleOpenTutorial = () => {
+    setTutorialStep(0);      // รีเซ็ตคู่มือกลับไปหน้าแรกสุด
+    setShowTutorial(true);   // สั่งให้หน้าต่างกระจกฝ้า Tutorial เด้งขึ้นมา
+  };
+
+  // 🔑 1. ฟังก์ชันขอ Token เพื่อเข้าถึงระบบ Preload [cite: 46, 189, 237]
   const getTHPToken = async () => {
     try {
       const username = '22061'; // [cite: 7, 48, 85]
@@ -1191,7 +1205,22 @@ const handleAuth = async (e) => {
   const handleReprintHistory = (order) => { setReprintOrder(order); setTimeout(() => { window.print(); setReprintOrder(null); }, 300); };
   
 // 🔥 ระบบกรองข้อมูลอัจฉริยะ (กรองตามวันที่คลิกกราฟ + คำค้นหา Tracking/วันที่)
+  // 🔥 ระบบกรองข้อมูลอัจฉริยะระดับ Enterprise (แยกสิทธิ์ Owner ดูได้หมด / Staff-Admin เห็นเฉพาะงานตัวเอง)
   const filteredOrders = historyOrders.filter(order => {
+    
+    // 🛡️ [ด่านสิทธิ์ความปลอดภัย] คัดกรองผู้ใช้งาน
+    if (userRole !== 'Owner') {
+      // ดักอ่านอีเมลปัจจุบันแอดมินที่ล็อกอินอยู่
+      const currentAdminEmail = user?.email || "";
+      
+      // ดักอ่านอีเมลแอดมินผู้สร้างออเดอร์ใน Firestore
+      const orderAdminEmail = order.adminEmail || "";
+      
+      // ถ้าอีเมลไม่ตรงกัน และสิทธิ์ไม่ใช่เถ้าแก่ (Owner) ให้ปัดตกคัดออกจากตารางทันที!
+      if (currentAdminEmail !== orderAdminEmail) {
+        return false;
+      }
+    }
     
     // 1. 📅 กรองตามวันที่กดจากกราฟแท่ง (ถ้ามีการเลือก)
     if (selectedDate) {
@@ -1998,11 +2027,18 @@ if (!user && isAuthView) {
                   <p className="text-slate-600 font-medium leading-relaxed">เช็คสถิติการส่ง แยกยอดโอนและยอด COD รายวันได้ที่แท็บ <span className="font-bold text-blue-600">"สถิติ"</span> พร้อมดาวน์โหลดประวัติเป็น Excel ไปทำบัญชีต่อได้ทันที</p>
                 </div>
               )}
+              {tutorialStep === 5 && (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                  <div className="text-7xl mb-4">⚡</div>
+                  <h3 className="text-2xl font-black text-slate-800 mb-3">6. ระบบส่งเลขพัสดุให้ลูกค้า</h3>
+                  <p className="text-slate-600 font-medium leading-relaxed">คลิก ก๊อปปี้ เลขพัสดุนำไปวางตอบแชทลูกค้า หรือคลิก ส่งเข้าแชท สำหรับแพ็กเกจพรีเมี่ยม เพื่อตอบแชทอัตโนมัติที่แท็บ <span className="font-bold text-blue-600">"รายละเอียดพัสดุ"</span> และยังสามารถสั่งพิมพ์จ่าหน้าซ้ำด้วยเลขพัสดุเดิมได้ด้วย</p>
+                </div>
+              )}
             </div>
 
             {/* จุดบอกสถานะ (Dots) */}
             <div className="flex justify-center gap-2 mt-6 mb-8">
-              {[0, 1, 2, 3, 4].map((step) => (
+              {[0, 1, 2, 3, 4, 5].map((step) => (
                 <div key={step} className={`w-2.5 h-2.5 rounded-full transition-colors ${tutorialStep === step ? 'bg-blue-600 w-6' : 'bg-slate-200'}`}></div>
               ))}
             </div>
@@ -2017,7 +2053,7 @@ if (!user && isAuthView) {
                 ย้อนกลับ
               </button>
               
-              {tutorialStep < 4 ? (
+              {tutorialStep < 5 ? (
                 <button 
                   onClick={() => setTutorialStep(prev => prev + 1)} 
                   className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition-transform active:scale-95"
@@ -2132,12 +2168,13 @@ if (!user && isAuthView) {
             <h2 className="text-2xl font-bold mb-6 text-gray-800">⚙️ ตั้งค่าข้อมูลร้านค้า</h2>
             {/* 🏪 1. บล็อกชื่อร้านค้า (ผู้ส่ง) - ดีไซน์ใหม่หรูหราเข้าชุด */}
             <div className="mb-4 text-left">
-              <label className="block text-xs font-bold text-gray-500 mb-1.5 pl-1">
+              {/* เปลี่ยนหัวข้อเป็น text-sm (หรือคง text-xs ไว้ถ้าอยากให้หัวข้อยังคงเล็กเรียบหรู) */}
+              <label className="block text-sm font-bold text-gray-500 mb-1.5 pl-1">
                 🏪 ชื่อร้านค้า (ผู้ส่ง)
               </label>
               <input 
                 type="text" 
-                className="w-full border border-gray-200 bg-slate-50/50 p-2.5 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all font-medium text-slate-800" 
+                className="w-full border border-gray-200 bg-slate-50/50 p-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-300 transition-all font-medium text-slate-800" 
                 placeholder="กรอกชื่อร้านค้าของคุณ..." 
                 value={tempProfile.name || ''} 
                 onChange={(e) => setTempProfile({...tempProfile, name: e.target.value})} 
@@ -2146,12 +2183,12 @@ if (!user && isAuthView) {
 
             {/* ☎️ 2. บล็อกเบอร์โทรศัพท์ร้านค้า - เนียนกริ๊บคุมโทนเดียวกัน */}
             <div className="mb-4 text-left">
-              <label className="block text-xs font-bold text-gray-500 mb-1.5 pl-1">
+              <label className="block text-sm font-bold text-gray-500 mb-1.5 pl-1">
                 📞 เบอร์โทรศัพท์ร้านค้า (แสดงบนใบปะหน้า)
               </label>
               <input 
                 type="text" 
-                className="w-full border border-gray-200 bg-slate-50/50 p-2.5 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all font-medium text-slate-800" 
+                className="w-full border border-gray-200 bg-slate-50/50 p-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-300 transition-all font-medium text-slate-800" 
                 placeholder="เช่น 081-XXXXXXX" 
                 value={tempProfile.phone || ''} 
                 onChange={(e) => setTempProfile({...tempProfile, phone: e.target.value})} 
@@ -2160,11 +2197,11 @@ if (!user && isAuthView) {
 
             {/* 🏠 3. บล็อกที่อยู่ร้านค้าแบบละเอียด - ดีไซน์พรีเมียม (เอาพื้นหลังสีเหลืองออกเพื่อให้กลมกลืน) */}
             <div className="mb-4 text-left">
-              <label className="block text-xs font-bold text-gray-500 mb-1.5 pl-1">
-                🏠 ที่อยู่ร้านค้า <span className="text-rose-500 text-[10px] font-black ml-1">*จำเป็น</span>
+              <label className="block text-sm font-bold text-gray-500 mb-1.5 pl-1">
+                🏠 ที่อยู่ร้านค้า <span className="text-rose-500 text-xs font-black ml-1">*จำเป็น</span> {/* ⚡ ปรับ text-[10px] เป็น text-xs */}
               </label>
               <textarea 
-                className="w-full border border-gray-200 bg-slate-50/50 p-2.5 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all font-medium text-slate-800 h-24 resize-none" 
+                className="w-full border border-gray-200 bg-slate-50/50 p-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-300 transition-all font-medium text-slate-800 h-24 resize-none" 
                 placeholder="กรอกที่อยู่สำหรับจ่าหน้าผู้ส่ง หรือกรณีพัสดุตีกลับ..." 
                 value={tempProfile.address || ''} 
                 onChange={(e) => setTempProfile({...tempProfile, address: e.target.value})} 
@@ -2173,18 +2210,18 @@ if (!user && isAuthView) {
             
             {/* 📜 กล่องตั้งค่าข้อความพิเศษและสัญญารูปแบบใหม่ (จัดระเบียบใหม่หมด ไม่ซ้ำซ้อน) */}
             <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-left">
-              <h3 className="text-xs font-black text-blue-700 mb-2 flex items-center gap-1">
+              <h3 className="text-sm font-black text-blue-700 mb-2 flex items-center gap-1">
                 ✉️ ข้อความพิเศษ / ข้อมูลสัญญาส่งของ
               </h3>
-              <p className="text-[10px] text-gray-500 mb-3">* หากกรอกข้อมูลบรรทัดที่ 1 ระบบจะเปิดกล่องข้อความพิเศษบนใบปะหน้าให้อัตโนมัติ</p>
-              
+              <p className="text-xs text-gray-500 mb-3">* หากกรอกข้อมูลบรรทัดที่ 1 ระบบจะเปิดกล่องข้อความพิเศษบนใบปะหน้าให้อัตโนมัติ</p>
+
               <div className="grid grid-cols-1 gap-3">
                 {/* แถวที่ 1: ข้อความหัวข้อหลัก */}
                 <div>
-                  <label className="block text-[11px] font-bold text-gray-500 mb-1">ข้อความบรรทัดที่ 1 (ตัวหนา/สีน้ำเงิน)</label>
+                  <label className="block text-sm font-bold text-gray-500 mb-1">ข้อความบรรทัดที่ 1 (ตัวหนา/สีน้ำเงิน)</label>
                   <input 
                     type="text" 
-                    className="w-full border p-2 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all" 
+                    className="w-full border p-2 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-300 transition-all" 
                     placeholder="เช่น ชำระค่าฝากส่งรายเดือน หรือ สินค้าแตกง่าย" 
                     value={tempProfile.specialLine1 || ''} 
                     onChange={(e) => setTempProfile({...tempProfile, specialLine1: e.target.value})} 
@@ -2193,10 +2230,10 @@ if (!user && isAuthView) {
 
                 {/* แถวที่ 2: ข้อความรอง */}
                 <div>
-                  <label className="block text-[11px] font-bold text-gray-500 mb-1">ข้อความบรรทัดที่ 2</label>
+                  <label className="block text-sm font-bold text-gray-500 mb-1">ข้อความบรรทัดที่ 2</label>
                   <input 
                     type="text" 
-                    className="w-full border p-2 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all" 
+                    className="w-full border p-2 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-300 transition-all" 
                     placeholder="เช่น ปณท. อนุญาตแล้ว หรือ กรุณาถ่ายวิดีโอตอนเปิดกล่อง" 
                     value={tempProfile.specialLine2 || ''} 
                     onChange={(e) => setTempProfile({...tempProfile, specialLine2: e.target.value})} 
@@ -2206,20 +2243,20 @@ if (!user && isAuthView) {
                 {/* แถวที่ 3: เลขที่ใบอนุญาต และ เลขที่สัญญา */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-bold text-gray-500 mb-1">ใบอนุญาตเลขที่ (ถ้ามี)</label>
+                    <label className="block text-sm font-bold text-gray-500 mb-1">ใบอนุญาตเลขที่ (ถ้ามี)</label>
                     <input 
                       type="text" 
-                      className="w-full border p-2 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all" 
+                      className="w-full border p-2 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-300 transition-all" 
                       placeholder="เช่น 45/2569" 
                       value={tempProfile.licenseNo || ''} 
                       onChange={(e) => setTempProfile({...tempProfile, licenseNo: e.target.value})} 
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-gray-500 mb-1">สัญญาเลขที่ (ถ้ามี)</label>
+                    <label className="block text-sm font-bold text-gray-500 mb-1">สัญญาเลขที่ (ถ้ามี)</label>
                     <input 
                       type="text" 
-                      className="w-full border p-2 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-300 transition-all" 
+                      className="w-full border p-2 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-300 transition-all" 
                       placeholder="เช่น ปณ.(น)/123" 
                       value={tempProfile.contractNo || ''} 
                       onChange={(e) => setTempProfile({...tempProfile, contractNo: e.target.value})} 
@@ -2392,14 +2429,29 @@ if (!user && isAuthView) {
               </button>
             </div>
             
-            {/* 🛑 โซนที่ 2: ล็อคปุ่มตั้งค่าร้าน ให้เฉพาะ Owner (เถ้าแก่) เห็นเท่านั้น! */}
+            {/* 🛑 โซนที่ 2: ปุ่มจัดการระบบของเถ้าแก่ (Owner) */}
             {userRole === 'Owner' && (
-              <button 
-                onClick={() => {
-                  setTempProfile(storeProfile); // 👈 1. บังคับโคลนข้อมูลของจริงล่าสุด มาใส่ตะกร้าชั่วคราวก่อน
-                  setIsSettingsOpen(true);      // 👈 2. ค่อยสั่งเปิดหน้าต่าง
-                }} className="btn-cute bg-white border border-slate-200 text-slate-700 px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-colors">⚙️ ตั้งค่าร้าน
-              </button>
+              <div className="flex items-center gap-2">
+                {/* 📖 🆕 ปุ่มเรียกดูคู่มือการใช้งาน (เพิ่มเข้ามาใหม่เรียงข้างกันอย่างสวยงาม) */}
+                <button
+                  onClick={handleOpenTutorial}
+                  className="btn-cute bg-white border border-slate-200 text-indigo-600 hover:text-indigo-700 px-4 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+                  title="เปิดดูคู่มือแนะนำการใช้งานระบบ"
+                >
+                  <span>📖</span> คู่มือระบบ
+                </button>
+
+                {/* ⚙️ ปุ่มตั้งค่าร้านตัวเดิมของท่าน CEO */}
+                <button 
+                  onClick={() => {
+                    setTempProfile(storeProfile);
+                    setIsSettingsOpen(true);
+                  }} 
+                  className="btn-cute bg-white border border-slate-200 text-slate-700 px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-colors"
+                >
+                  ⚙️ ตั้งค่าร้าน
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -2693,23 +2745,23 @@ if (!user && isAuthView) {
                </div>
             </div>
 
-            {/* 🔥 2.5 กราฟผลงานพนักงาน (Gamification) */}
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mb-6 card-hover">
-               <div className="flex justify-between items-center mb-4">
-                 <h3 className="text-lg font-black text-slate-700">🏆 Leaderboard ผลงานทีมงาน <span className="text-sm font-medium text-slate-400 ml-2">(ใครแพ็คเยอะสุด?)</span></h3>
-               </div>
-               <ResponsiveContainer width="100%" height={250}>
-                  {/* เปลี่ยนเป็นกราฟแนวนอน (layout="vertical") เพื่อให้อ่านชื่อพนักงานง่ายขึ้น */}
+            {/* 🔥 2.5 กราฟผลงานพนักงาน (Gamification) - อัปเกรดล็อกสิทธิ์ให้เห็นเฉพาะเถ้าแก่ (Owner) */}
+            {userRole === 'Owner' && (
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mb-6 card-hover text-left">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-black text-slate-700">🏆 Leaderboard ผลงานทีมงาน <span className="text-sm font-medium text-slate-400 ml-2">(ใครแพ็คเยอะสุด?)</span></h3>
+                </div>
+                <ResponsiveContainer width="100%" height={250}>
                   <BarChart data={dashboardStats.staffData || []} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" />
                      <XAxis type="number" hide />
                      <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fontSize: 13, fill: '#475569', fontWeight: 'bold'}} />
                      <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
-                     <Bar dataKey="ชิ้นงาน" fill="#6366f1" radius={[0, 8, 8, 0]} barSize={24} animationDuration={1500}>
-                     </Bar>
+                     <Bar dataKey="ชิ้นงาน" fill="#6366f1" radius={[0, 8, 8, 0]} barSize={24} animationDuration={1500}></Bar>
                   </BarChart>
-               </ResponsiveContainer>
-            </div>
+                </ResponsiveContainer>
+              </div>
+            )}
 
             {/* 3. ตารางรายละเอียด (Data Table) */}
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 mb-10">
