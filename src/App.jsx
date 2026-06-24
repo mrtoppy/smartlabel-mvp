@@ -263,19 +263,21 @@ export default function App() {
   };
 
 
-  // 📥 1. State สำหรับเก็บแชท (ใช้ชื่อ incomingChats ให้ตรงกับโค้ด UI ของท่าน CEO)
+    // 📥 1. State สำหรับเก็บแชท (ใช้ชื่อ incomingChats ให้ตรงกับโค้ด UI ของท่าน CEO)
 
 
-  // 🔄 2. ฟังก์ชันดึงแชทอัตโนมัติจาก Firebase
+    // 🔄 2. ฟังก์ชันดึงแชทอัจฉริยะแบบกระจายสายงาน (แชร์แชทเพจให้ Owner, Admin, Staff เห็นร่วมกัน)
   useEffect(() => {
-    if (!user) return; 
+    // ดักจับ: ถ้าไม่มีการล็อกอิน หรือยังดึงไอดีเถ้าแก่ร่วม (userOwnerId) ไม่สำเร็จ ให้รอสลักสิทธิ์ก่อน
+    if (!user || !userOwnerId) return; 
 
+    // ⚡ เปลี่ยนจาก user.uid เป็น userOwnerId เพื่อดึงถังแชทใบเดียวกันของร้านมาแชร์ให้พนักงานทุกคน
     const q = query(
       collection(db, "chats"),
-      where("ownerId", "==", user.uid)
+      where("ownerId", "==", userOwnerId)
     );
 
-  const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const chats = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -284,13 +286,15 @@ export default function App() {
       // เรียงลำดับเวลาใหม่สุดขึ้นก่อน
       chats.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
       
-      // 🔥 แบ่งตะกร้า: เก็บทั้งหมดไว้ที่นึง และโชว์เฉพาะอันใหม่ที่จอหลัก
+      // 🔥 กระจายข้อมูลลงตะกร้าหน้าจอหลักออโต้
       setAllChats(chats); 
       setIncomingChats(chats.filter(chat => chat.status === "new"));
+    }, (error) => {
+      console.error("Smart Inbox Stream Error:", error);
     });
 
     return () => unsubscribe(); 
-  }, [user]);
+  }, [user, userOwnerId]); // เฝ้าดูตัวแปร userOwnerId เป็นสำคัญ
 
   // ดึงข้อมูลตัวแทนและการถอนเงิน
   const loadAffiliateDataForAdmin = async () => {
@@ -1124,7 +1128,8 @@ const handleAuth = async (e) => {
                 ownerId: userOwnerId || "",                            // รหัสเจ้าของร้านค้า
                 pageId: order.pageId || order.parsedData.pageId || "",    // ID เพจ Facebook
                 senderId: order.senderId || order.parsedData.senderId || "", // ID แชทของลูกค้า
-                creatorName: storeProfile.staffName || "Owner",        // ผู้ทำรายการ
+                // เปลี่ยนท่อนระบุผู้ทำรายการให้ดึงจากโปรไฟล์พนักงานจริงที่กำลังนั่งแพ็กของอยู่
+                creatorName: tempProfile.name || user?.email?.split('@')[0] || "Owner", 
                 adminEmail: user?.email || "-",
                 
                 // 📅 ตราประทับเวลา
