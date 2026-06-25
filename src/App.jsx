@@ -1672,8 +1672,8 @@ if (!user && !isAuthView) {
         <section className="py-24 text-center relative px-6 z-20">
           <div className="max-w-4xl mx-auto bg-gradient-to-br from-slate-900 to-slate-900/40 border border-slate-800 rounded-[3rem] p-10 md:p-16 shadow-2xl relative overflow-hidden">
             <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl"></div>
-            <h2 className="text-3xl md:text-5xl font-black text-white mb-4">ต้องการปรึกษาการวางระบบคลังสินค้า?</h2>
-            <p className="text-slate-400 font-medium mb-10 max-w-xl mx-auto text-base">ทีมงานวิศวกร ToppySmart พร้อมช่วยเหลือจับมือตั้งค่าหน้าเพจร่วมกับคุณค่ะ</p>
+            <h2 className="text-3xl md:text-5xl font-black text-white mb-4">ต้องการสอบถามข้อมูลเพิ่มเติม?</h2>
+            <p className="text-slate-400 font-medium mb-10 max-w-xl mx-auto text-base">ทีมงาน ToppySmart พร้อมช่วยเหลือครับ</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
               <a href="https://qr-official.line.me/gs/M_057bbduq_GW.png?oat_content=qr" target="_blank" rel="noreferrer" 
                 className="btn-cute w-full sm:w-auto flex items-center justify-center gap-3 px-12 py-5 bg-[#06C755] text-white font-black rounded-2xl shadow-xl shadow-green-500/20 text-lg">
