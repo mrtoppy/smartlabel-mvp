@@ -1492,161 +1492,191 @@ const handleExportCSV = () => {
 
 if (!user && !isAuthView) {
     return (
-      <div className="min-h-screen bg-white font-sans text-gray-900 selection:bg-blue-200 overflow-x-hidden">
+      <div className="min-h-screen bg-slate-950 font-sans text-gray-100 selection:bg-blue-600/30 overflow-x-hidden relative">
+        
+        {/* 🎨 ค่ายกล CSS เอฟเฟกต์กระจกฝ้าและ Animation เด้งนุ่ม ๆ */}
         <style>{`
-          @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
-          .animate-float { animation: float 3s ease-in-out infinite; }
+          @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+          .animate-float { animation: float 4s ease-in-out infinite; }
           .btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-          .btn-cute:hover { transform: scale(1.05) translateY(-2px); box-shadow: 0 15px 30px -10px rgba(59, 130, 246, 0.5); }
-          .card-hover { transition: all 0.4s ease; }
-          .card-hover:hover { transform: translateY(-8px); box-shadow: 0 20px 40px -15px rgba(0,0,0,0.08); }
-          .bg-grid { background-image: radial-gradient(#e5e7eb 1px, transparent 1px); background-size: 20px 20px; }
+          .btn-cute:hover { transform: scale(1.05) translateY(-3px); box-shadow: 0 20px 40px -10px rgba(59, 130, 246, 0.5); }
+          .card-hover { transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+          .card-hover:hover { transform: translateY(-10px); border-color: rgba(59, 130, 246, 0.4); background: rgba(30, 41, 59, 0.7); }
         `}</style>
         
-        {/* 🧭 Navbar */}
-        <nav className="flex justify-between items-center px-6 md:px-12 py-6 border-b bg-white/80 backdrop-blur-md sticky top-0 z-50">
-          {/*<div className="text-2xl font-black text-blue-800 flex items-center gap-2">
-            <span className="animate-float inline-block">📦</span> SmartLabel
-          </div>*/}{/* 🧭 Logo เดิม */}
+        {/* 🧭 1. แถบเนวิเกเตอร์ (Navbar) - โปร่งแสงรับมิติด้านหลัง */}
+        <nav className="flex justify-between items-center px-6 md:px-12 py-5 border-b border-slate-800 bg-slate-950/70 backdrop-blur-xl sticky top-0 z-50">
           <div className="flex items-center">
             <img 
-              src="/LogoSmartLabel.png" // 🔑 ใช้ไฟล์ใหม่ที่ปรับสัดส่วนแล้ว
+              src="/LogoSmartLabel.png" 
               alt="ToppySmart SmartLabel Logo" 
-              className="h-21 md:h-24 w-auto object-contain hover:scale-105 transition-transform duration-300"
+              className="h-20 md:h-24 w-auto object-contain hover:scale-105 transition-transform duration-300"
             />
           </div>
           <div className="flex gap-4 items-center">
-            {/*<button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-slate-500 font-bold hover:text-blue-600 transition-colors hidden lg:block">🤝 Partner Program</button>*/}
-            <div className="h-6 w-px bg-slate-200 hidden lg:block"></div>
-            <button onClick={() => setIsAuthView(true)} className="btn-cute bg-white text-blue-600 border-2 border-blue-600 px-6 py-2 rounded-xl font-bold">เข้าสู่ระบบ</button>
-            {/*<button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg shadow-blue-500/30">สมัครฟรี</button>*/}
+            <button 
+              onClick={() => setIsAuthView(true)} 
+              className="btn-cute bg-blue-600 hover:bg-blue-500 text-white px-7 py-2.5 rounded-2xl font-black text-sm shadow-lg shadow-blue-500/20 transition-all border border-blue-400/20"
+            >
+              🚀 เข้าสู่ระบบร้านค้า
+            </button>
           </div>
         </nav>
         
-        {/* 🚀 Hero Section */}
-        <header className="px-6 py-28 text-center bg-grid relative">
-          <div className="absolute inset-0 bg-gradient-to-b from-blue-50/60 to-white -z-10"></div>
-          <div className="inline-block px-4 py-1.5 mb-6 bg-blue-100 text-blue-700 rounded-full text-sm font-black tracking-widest uppercase animate-pulse">
-            🚀 ระบบ SaaS ใหม่! เชื่อมต่อ API ไปรษณีย์ไทย & ดูดแชทเพจ 100%
-          </div>
-          <h1 className="text-5xl md:text-8xl font-black text-slate-900 mb-8 leading-[1.1] tracking-tight">
-            จบงานจ่าหน้า <br/> <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">และแจ้งเลขในคลิกเดียว</span>
-          </h1>
-          <p className="text-xl text-slate-500 mb-12 max-w-3xl mx-auto leading-relaxed font-medium">
-            ระบบแรกที่เชื่อมต่อกับ <strong className="text-blue-600">ไปรษณีย์ไทย (PostOne)</strong> โดยตรง ออกเลขพัสดุจริงทันที 
-            พร้อมระบบดูดแชทสกัดจ่าหน้า และยิงเลขแทรคกิ้งกลับเข้า Messenger ลูกค้าสายฟ้าแลบ!
-          </p>
-          <div className="flex flex-col md:flex-row gap-4 justify-center items-center">
-            <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute bg-blue-600 text-white text-xl px-12 py-5 rounded-2xl font-black shadow-2xl shadow-blue-500/40">เริ่มทดลองใช้ฟรี 50 ใบ</button>
-            <div className="text-slate-400 font-medium flex items-center gap-2">
-              <span>⭐️ ไม่ต้องผูกบัตรเครดิต</span>
-              <span className="text-slate-200">|</span>
-              <span>⚡️ เริ่มใช้งานได้ใน 1 นาที</span>
+        {/* 🚀 2. โซนฮีโร่ (Hero Section) - บรรยากาศออฟฟิศแม่ค้าออนไลน์หลักพันชิ้น/วัน */}
+        <header className="relative min-h-[85vh] flex items-center justify-center px-6 py-24 text-center overflow-hidden">
+          
+          {/* 📸 ภาพแบล็กกราวด์: แม่ค้าออนไลน์มือโปรทำงานแพ็กของในบ้าน/สำนักงานขนาดเล็ก */}
+          <div 
+            className="absolute inset-0 bg-cover bg-center transition-all duration-700 transform scale-105"
+            style={{ 
+              backgroundImage: `url('https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&q=80&w=1920')`,
+              filter: 'blur(5px) brightness(0.25)' // 🔑 สาดเอฟเฟกต์เบลอและปรับมืดเพื่อให้เนื้อหาด้านหน้าโดดเด่นสะใจ
+            }}
+          ></div>
+
+          {/* 🌌 ม่านแสงไล่เฉดสีช่วยดึงสายตาเข้าหาตรงกลาง */}
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-slate-950/40 to-slate-950 pointer-events-none"></div>
+          
+          <div className="relative z-10 max-w-4xl mx-auto animate-[fadeIn_0.6s_ease-out]">
+            <div className="inline-flex items-center gap-2 px-4 py-2 mb-8 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-full text-xs md:text-sm font-black tracking-widest uppercase backdrop-blur-md">
+              ⚡ ยอดขายหลักพันชิ้นต่อวัน จัดการได้ในคลิกเดียว
+            </div>
+            
+            {/* 💥 ปรับขนาดพาดหัวให้ใหญ่ ชัด หนา ดึงดูดสายตาขั้นสุด */}
+            <h1 className="text-5xl md:text-7xl font-black text-white mb-8 leading-[1.15] tracking-tight">
+              สกัดแชทลูกค้าจ่าหน้า <br/>
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-indigo-400 to-emerald-400">
+                และแจ้งเลขพัสดุออโต้
+              </span>
+            </h1>
+            
+            <p className="text-lg md:text-2xl text-slate-300 mb-12 max-w-3xl mx-auto leading-relaxed font-medium">
+              ระบบแรกที่เชื่อมตรงกับ <strong className="text-blue-400 underline font-black">ไปรษณีย์ไทย (PostOne)</strong> ดึงที่อยู่ลูกค้าจากแชทเพจ Facebook มาสกัดและออกเลขจริงทันที พร้อมปุ่มสายฟ้ายิงเลขแทรคกิ้งกลับเข้า Messenger สายฟ้าแลบ!
+            </p>
+            
+            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+              <button 
+                onClick={() => { setIsAuthView(true); setAuthMode('register'); }} 
+                className="btn-cute w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xl px-12 py-5 rounded-2xl font-black shadow-2xl shadow-blue-500/40 flex items-center justify-center gap-2"
+              >
+                🔥 เริ่มทดลองใช้ฟรี 50 ใบ
+              </button>
+              <div className="text-slate-400 text-sm font-bold flex items-center gap-2 mt-2 sm:mt-0">
+                <span>⭐️ ระบบพร้อมรันใน 1 นาที</span>
+              </div>
             </div>
           </div>
         </header>
         
-        {/* 🌟 Features Showcase */}
-        <section className="py-24 px-6 max-w-7xl mx-auto">
+        {/* 🌟 3. โซนการ์ดฟังก์ชันเด่น (Features Showcase) */}
+        <section className="py-28 px-6 max-w-7xl mx-auto relative z-20">
           <div className="text-center mb-20">
-            <h2 className="text-3xl md:text-5xl font-black text-slate-800 mb-4">ฟังก์ชันที่ทำให้เรา "เหนือกว่า"</h2>
-            <div className="h-1.5 w-24 bg-blue-500 mx-auto rounded-full"></div>
+            <h2 className="text-4xl md:text-6xl font-black text-white mb-4">ฟังก์ชันที่ทำให้คลังสินค้าคุณ "เหนือกว่า"</h2>
+            <p className="text-slate-400 text-base md:text-lg max-w-xl mx-auto mt-2 font-medium">เปลี่ยนโต๊ะทำงานที่บ้านให้กลายเป็นแพลตฟอร์มแพ็กของอัจฉริยะ</p>
+            <div className="h-1.5 w-24 bg-gradient-to-r from-blue-500 to-indigo-500 mx-auto rounded-full mt-6"></div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm card-hover">
-              <div className="text-4xl mb-4">📡</div>
-              <h3 className="text-xl font-black mb-3 text-slate-800">Direct THP API</h3>
-              <p className="text-slate-500 text-sm leading-relaxed">เชื่อมระบบไปรษณีย์ไทยโดยตรง ออกเลขพัสดุ EMS/ลงทะเบียน ของจริงได้ทันทีจากหน้าจอ</p>
+            <div className="bg-slate-900/40 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-xl card-hover">
+              <div className="text-5xl mb-5 animate-float inline-block">📡</div>
+              <h3 className="text-xl font-black mb-3 text-white">Direct THP API</h3>
+              <p className="text-slate-400 text-sm leading-relaxed font-medium">ต่อท่อตรงเข้าเซิร์ฟเวอร์ไปรษณีย์ไทยของจริง พิมพ์ใบปะหน้าความร้อนพร้อมบาร์โค้ดสากลทันที</p>
             </div>
-            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm card-hover">
-              <div className="text-4xl mb-4">⚡</div>
-              <h3 className="text-xl font-black mb-3 text-slate-800">Auto Chat Send</h3>
-              <p className="text-slate-500 text-sm leading-relaxed">ปุ่มสายฟ้าอัจฉริยะ คลิกเดียวส่งเลขแทรคกิ้งเข้า Facebook Messenger ลูกค้าอัตโนมัติไม่ต้องก๊อปวาง</p>
+            <div className="bg-slate-900/40 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-xl card-hover">
+              <div className="text-5xl mb-5 animate-float inline-block">⚡</div>
+              <h3 className="text-xl font-black mb-3 text-white">Auto Chat Send</h3>
+              <p className="text-slate-400 text-sm leading-relaxed font-medium">ปุ่มสายฟ้าคลิกเดียวส่งเลขพัสดุและลิงก์ติดตามสถานะเด้งกลับเข้าแชทลูกค้า ไม่ต้องเปิดสลับจอ</p>
             </div>
-            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm card-hover">
-              <div className="text-4xl mb-4">🤖</div>
-              <h3 className="text-xl font-black mb-3 text-slate-800">Smart Inbox</h3>
-              <p className="text-slate-500 text-sm leading-relaxed">ดูดแชทลูกค้าเข้าสู่ระบบดักสกัดข้อมูลจ่าหน้า รหัสไปรษณีย์ และเบอร์โทรศัพท์ได้ใน 1 วินาที</p>
+            <div className="bg-slate-900/40 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-xl card-hover">
+              <div className="text-5xl mb-5 animate-float inline-block">🤖</div>
+              <h3 className="text-xl font-black mb-3 text-white">Smart Inbox</h3>
+              <p className="text-slate-400 text-sm leading-relaxed font-medium">ดูดแชทลูกค้าสกัดชื่อ เบอร์โทร รหัสไปรษณีย์ และแชร์ข้อมูลให้ทีมงานพนักงานแพ็กช่วยส่องพร้อมกัน</p>
             </div>
-            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm card-hover">
-              <div className="text-4xl mb-4">🔄</div>
-              <h3 className="text-xl font-black mb-3 text-slate-800">Status Tracking</h3>
-              <p className="text-slate-500 text-sm leading-relaxed">ระบบอัปเดตสถานะพัสดุ Real-time คอยติดตามและแจ้งเตือนจนกว่าของจะถึงมือผู้รับ</p>
+            <div className="bg-slate-900/40 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-xl card-hover">
+              <div className="text-5xl mb-5 animate-float inline-block">👥</div>
+              <h3 className="text-xl font-black mb-3 text-white">Staff Management</h3>
+              <p className="text-slate-400 text-sm leading-relaxed font-medium">ระบบกักข้อมูลพนักงานรายบุคคล แอดมินแพ็กจะเห็นและสกัดได้เฉพาะงานตัวเอง ป้องกันส่งซ้ำ</p>
             </div>
           </div>
         </section>
 
-        {/* 💳 Pricing Section */}
-        <section className="py-24 bg-slate-50 border-y border-slate-100">
+        {/* 💳 4. โซนตารางราคาแพ็กเกจ (Pricing Section) */}
+        <section className="py-28 bg-slate-900/20 border-y border-slate-800/60 relative z-20">
           <div className="max-w-6xl mx-auto px-6 text-center">
-            <h2 className="text-4xl font-black mb-4 text-slate-800">แพ็กเกจที่คุ้มค่าที่สุดในตลาด</h2>
-            <p className="text-slate-500 mb-16 font-medium">ประหยัดเวลาแอดมินวันละหลายชั่วโมง เลือกแพ็กเกจที่ใช่สำหรับสเกลร้านคุณ</p>
+            <h2 className="text-4xl md:text-6xl font-black mb-4 text-white">แพ็กเกจที่คุ้มค่าที่สุดในตลาด</h2>
+            <p className="text-slate-400 text-base md:text-lg mb-20 font-medium">ประหยัดเวลาพิมพ์มือวันละหลายชั่วโมง เลือกสเกลเครดิตที่ใช่สำหรับร้านคุณ</p>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
-              {/* แพ็กเกจ 200 บาท */}
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200 card-hover flex flex-col">
-                <div className="mb-8">
-                  <p className="text-slate-400 font-black mb-2 tracking-widest uppercase text-xs">Standard</p>
-                  <p className="text-5xl font-black mb-2 text-slate-800">฿200</p>
-                  <p className="text-slate-400 text-sm font-bold">ได้รับ 500 จ่าหน้า (0.4 บ./ใบ)</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left items-stretch">
+              
+              {/* แพ็กเกจ Standard (200 บาท) */}
+              <div className="bg-slate-900/50 backdrop-blur-md p-8 rounded-[2.5rem] shadow-xl border border-slate-800 card-hover flex flex-col justify-between">
+                <div>
+                  <div className="mb-6">
+                    <p className="text-slate-500 font-black mb-2 tracking-widest uppercase text-xs">Standard</p>
+                    <p className="text-5xl font-black mb-2 text-white">฿200</p>
+                    <p className="text-blue-400 text-sm font-bold">ได้รับ 500 จ่าหน้า (เพียง 0.4 บ./ใบ)</p>
+                  </div>
+                  <ul className="text-sm text-slate-400 mb-10 space-y-4 font-medium border-t border-slate-800 pt-6">
+                    <li className="flex items-center gap-2">✅ ระบบสกัดที่อยู่จากข้อความแชท</li>
+                    <li className="flex items-center gap-2">✅ ระบบจำจดลูกค้าเก่าอัตโนมัติ (CRM)</li>
+                    <li className="flex items-center gap-2">✅ ออกเลขพัสดุจำลองรูปแบบเสมือนจริง</li>
+                    <li className="flex items-center gap-2">✅ ระบบพิมพ์ซ้ำและประวัติสถิติพื้นฐาน</li>
+                  </ul>
                 </div>
-                <ul className="text-sm text-slate-600 mb-10 space-y-4 flex-grow font-medium">
-                  <li className="flex items-center gap-2">✅ ระบบสกัดที่อยู่จากแชทคีย์มือ</li>
-                  <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
-                  <li className="flex items-center gap-2">✅ ออกเลขพัสดุจำลอง (Mock 2.0)</li>
-                  <li className="flex items-center gap-2">✅ แดชบอร์ดสถิติแพ็กของพนักงาน</li>
-                </ul>
-                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-2xl border-2 border-slate-200 text-slate-600 font-bold hover:bg-slate-50">เริ่มใช้งานฟรี</button>
+                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-2xl border-2 border-slate-700 text-slate-300 font-bold bg-slate-800/40 hover:bg-slate-800">สมัครเริ่มใช้งาน</button>
               </div>
 
-              {/* 🔥 แพ็กเกจพรีเมียม (พระเอกสูงสุด) */}
-              <div className="bg-slate-900 p-8 rounded-[2.5rem] shadow-2xl border-4 border-blue-500 relative overflow-hidden card-hover transform md:-translate-y-6 flex flex-col text-white">
-                <div className="absolute top-0 right-0 bg-blue-500 text-white px-6 py-2 font-black text-xs rounded-bl-2xl uppercase tracking-widest animate-pulse">Recommended</div>
-                <div className="mb-8">
-                  <p className="text-blue-400 font-black mb-2 tracking-widest uppercase text-xs">Ultimate Automation</p>
-                  <p className="text-6xl font-black mb-2 text-white">฿1,000</p>
-                  <p className="text-blue-300 text-sm font-black">ได้รับ 10,000 จ่าหน้า (เพียง 0.1 บ./ใบ)</p>
+              {/* 🔥 แพ็กเกจ Ultimate Automation (พระเอกสูงสุด 1,000 บาท) */}
+              <div className="bg-slate-900/90 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-2xl border-4 border-blue-500 relative overflow-hidden card-hover transform md:-translate-y-6 flex flex-col justify-between text-white">
+                <div className="absolute top-0 right-0 bg-blue-500 text-white px-6 py-2 font-black text-xs rounded-bl-2xl uppercase tracking-widest animate-pulse">ยอดฮิตแนะนำ ⭐</div>
+                <div>
+                  <div className="mb-6">
+                    <p className="text-blue-400 font-black mb-2 tracking-widest uppercase text-xs">Ultimate Automation</p>
+                    <p className="text-6xl font-black mb-2 text-white">฿1,000</p>
+                    <p className="text-emerald-400 text-sm font-black">ได้รับ 10,000 จ่าหน้า (เหลือเพียง 0.1 บ./ใบ)</p>
+                  </div>
+                  <ul className="text-sm text-slate-300 mb-10 space-y-4 font-medium border-t border-slate-800 pt-6">
+                    <li className="flex items-center gap-3 text-blue-300 font-bold">🚀 เชื่อม API ไปรษณีย์ไทยของจริง (PostOne)</li>
+                    <li className="flex items-center gap-3 text-indigo-300 font-bold">⚡ ปุ่มสายฟ้ายิงแจ้งเลขพัสดุเข้าแชทอัตโนมัติ</li>
+                    <li className="flex items-center gap-3 text-emerald-300 font-bold">🤖 ดูดแชท Facebook Page ไม่อั้นเรียลไทม์</li>
+                    <li className="flex items-center gap-3">✅ แดชบอร์ดคัดแยกสถิติพนักงานรายบุคคล</li>
+                    <li className="flex items-center gap-3">✅ ดาวน์โหลดไฟล์บัญชีความร้อนด่วน (CSV)</li>
+                  </ul>
                 </div>
-                <ul className="text-sm text-slate-200 mb-10 space-y-4 flex-grow font-medium">
-                  <li className="flex items-center gap-3">🚀 <span className="font-bold text-blue-300">เชื่อม API ไปรษณีย์ไทยของจริง (PostOne)</span></li>
-                  <li className="flex items-center gap-3">⚡ <span className="font-bold text-blue-300">ปุ่มสายฟ้ายิงแจ้งเลขพัสดุเข้าแชทลูกค้า</span></li>
-                  <li className="flex items-center gap-3">🤖 <span className="font-bold text-blue-300">เชื่อมต่อและดูดแชท Facebook Page ได้ไม่จำกัด</span></li>
-                  <li className="flex items-center gap-3">🔄 อัปเดตสถานะพัสดุอัตโนมัติทุก 4 ชม.</li>
-                  <li className="flex items-center gap-3">📊 ระบบ CRM, แดชบอร์ดหรูหรา และสถิติครบชุด</li>
-                </ul>
-                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-5 rounded-2xl bg-blue-600 text-white font-black shadow-xl shadow-blue-500/40">อัปเกรดเป็นระดับโปร</button>
+                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black shadow-xl shadow-blue-500/40">อัปเกรดเป็นระดับโปร</button>
               </div>
 
-              {/* แพ็กเกจ 500 บาท */}
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200 card-hover flex flex-col">
-                <div className="mb-8">
-                  <p className="text-indigo-500 font-black mb-2 tracking-widest uppercase text-xs">Popular</p>
-                  <p className="text-5xl font-black mb-2 text-slate-800">฿500</p>
-                  <p className="text-slate-400 text-sm font-bold">ได้รับ 2,000 จ่าหน้า (0.25 บ./ใบ)</p>
+              {/* แพ็กเกจ Popular (500 บาท) */}
+              <div className="bg-slate-900/50 backdrop-blur-md p-8 rounded-[2.5rem] shadow-xl border border-slate-800 card-hover flex flex-col justify-between">
+                <div>
+                  <div className="mb-6">
+                    <p className="text-slate-500 font-black mb-2 tracking-widest uppercase text-xs">Popular</p>
+                    <p className="text-5xl font-black mb-2 text-white">฿500</p>
+                    <p className="text-indigo-400 text-sm font-bold">ได้รับ 2,000 จ่าหน้า (เพียง 0.25 บ./ใบ)</p>
+                  </div>
+                  <ul className="text-sm text-slate-400 mb-10 space-y-4 font-medium border-t border-slate-800 pt-6">
+                    <li className="flex items-center gap-2">✅ ระบบสกัดที่อยู่จากข้อความแชท</li>
+                    <li className="flex items-center gap-2">✅ ระบบจำจดลูกค้าเก่าอัตโนมัติ (CRM)</li>
+                    <li className="flex items-center gap-2">✅ ดาวน์โหลดไฟล์ Excel ทำรายงานส่งสถิติ</li>
+                    <li className="flex items-center gap-2">✅ หน้าแดชบอร์ดสรุปสถิติมุมมองรวมเถ้าแก่</li>
+                  </ul>
                 </div>
-                <ul className="text-sm text-slate-600 mb-10 space-y-4 flex-grow font-medium">
-                  <li className="flex items-center gap-2">✅ ระบบสกัดที่อยู่จากแชทคีย์มือ</li>
-                  <li className="flex items-center gap-2">✅ ระบบจดจำลูกค้าเก่า (CRM)</li>
-                  <li className="flex items-center gap-2">✅ ระบบ Export ไฟล์ Excel บัญชี</li>
-                  <li className="flex items-center gap-2">✅ สถิติตัวเลขรายรับรวมรายวัน</li>
-                </ul>
-                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-2xl border-2 border-indigo-600 text-indigo-600 font-bold hover:bg-slate-50">เลือกแพ็กเกจนี้</button>
+                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-2xl border-2 border-indigo-500/40 text-indigo-400 font-bold bg-slate-800/20 hover:bg-slate-800">เลือกแพ็กเกจนี้</button>
               </div>
             </div>
           </div>
         </section>
 
-        {/* 📞 โซนปิดการขายและติดต่อสอบถาม (CTA Section ดีไซน์ใหม่หมดจด) */}
-        <section className="py-20 bg-white text-center relative px-6">
-          <div className="max-w-3xl mx-auto bg-gradient-to-br from-slate-50 to-blue-50/30 border border-slate-100 rounded-[3rem] p-10 md:p-14 shadow-sm">
-            <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-4">ต้องการสอบถามข้อมูลเพิ่มเติม?</h2>
-            <p className="text-slate-500 font-medium mb-8 max-w-xl mx-auto">ทีมงาน ToppySmart Logistics พร้อมดูแลและให้คำแนะนำครับ</p>
-            
+        {/* 📞 5. โซนปิดการขายและกล่องช่องทางติดต่อ (Call to Action) */}
+        <section className="py-24 text-center relative px-6 z-20">
+          <div className="max-w-4xl mx-auto bg-gradient-to-br from-slate-900 to-slate-900/40 border border-slate-800 rounded-[3rem] p-10 md:p-16 shadow-2xl relative overflow-hidden">
+            <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl"></div>
+            <h2 className="text-3xl md:text-5xl font-black text-white mb-4">ต้องการปรึกษาการวางระบบคลังสินค้า?</h2>
+            <p className="text-slate-400 font-medium mb-10 max-w-xl mx-auto text-base">ทีมงานวิศวกร ToppySmart พร้อมช่วยเหลือจับมือตั้งค่าหน้าเพจร่วมกับคุณค่ะ</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-              {/* ปุ่ม LINE ปรับปรุงไอคอน SVG สะอาดตา ไม่พึ่งพาลิ้งก์นอกเว็บบางอัน */}
               <a href="https://qr-official.line.me/gs/M_057bbduq_GW.png?oat_content=qr" target="_blank" rel="noreferrer" 
-                className="btn-cute w-full sm:w-auto flex items-center justify-center gap-3 px-10 py-4.5 bg-[#06C755] text-white font-black rounded-2xl shadow-xl shadow-green-500/20 text-lg">
+                className="btn-cute w-full sm:w-auto flex items-center justify-center gap-3 px-12 py-5 bg-[#06C755] text-white font-black rounded-2xl shadow-xl shadow-green-500/20 text-lg">
                 <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
                   <path d="M24 10.304c0-5.369-5.383-9.738-12-9.738s-12 4.369-12 9.738c0 4.814 4.269 8.846 10.036 9.564.39.084.922.258 1.058.592.12.296.08.759.04 1.058l-.17 1.023c-.05.32-.25 1.253 1.09.684 1.34-.57 7.21-4.24 9.84-7.252 2.11-2.43 2.11-4.78 2.11-5.691zm-15.39 3.011c0 .4-.33.73-.73.73h-1.63c-.4 0-.73-.33-.73-.73v-4.1c0-.4.33-.73.73-.73s.73.33.73.73v3.37h.9c.4 0 .73.33 .73.73zm2.59-.73c0 .4-.33.73-.73.73s-.73-.33-.73-.73v-4.1c0-.4.33-.73.73-.73s.73.33.73.73v4.1zm5.54.73c0 .4-.33.73-.73.73h-2.15c-.4 0-.73-.33-.73-.73v-4.1c0-.4.33-.73.73-.73h2.15c.4 0 .73.33 .73.73s-.33.73-.73.73h-1.42v.69h1.16c.4 0 .73.33 .73.73s-.33.73-.73.73h-1.16v.77h1.42c.4 0 .73.33 .73.73zm-3.03-2.15l1.32-1.98v1.98c0 .4.33.73.73.73s.73-.33.73-.73v-4.1c0-.43-.36-.73-.75-.73-.24 0-.46.12-.59.32l-1.44 2.16v-2.16c0-.4-.33-.73-.73-.73s-.73.33-.73.73v4.1c0 .4.33.73.73.73.39 0 .73-.3.73-.73z"/>
                 </svg>
@@ -1656,15 +1686,15 @@ if (!user && !isAuthView) {
           </div>
         </section>
 
-        {/* 👣 Footer */}
-        <footer className="py-12 bg-white border-t border-slate-100 px-6">
+        {/* 👣 6. ส่วนท้ายสุดเอกสาร (Footer) */}
+        <footer className="py-12 bg-slate-950 border-t border-slate-900 px-6 relative z-20">
           <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="text-center md:text-left">
-              <div className="text-xl font-black text-blue-800 mb-1">SmartLabel</div>
-              <p className="text-slate-400 text-xs font-medium">© 2026 ToppySmart Logistics. All rights reserved. <br/>พัฒนาร่วมกับ CTO Copilot</p>
+              <div className="text-2xl font-black text-blue-400 mb-1">SmartLabel</div>
+              <p className="text-slate-500 text-xs font-bold">© 2026 ToppySmart Logistics. All rights reserved. <br/>พัฒนาร่วมกับ CTO Copilot</p>
             </div>
             <div className="flex gap-6">
-               <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-sm text-blue-600 font-black hover:underline flex items-center gap-2">🤝 ร่วมเป็นพาร์ทเนอร์กับเรา สมัครหรือเข้าใช้งานที่นี่</button>
+               <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-sm text-blue-400 font-black hover:underline flex items-center gap-2">🤝 ร่วมเป็นพาร์ทเนอร์กับเรา สมัครหรือเข้าใช้งานที่นี่</button>
             </div>
           </div>
         </footer>
