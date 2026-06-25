@@ -1506,13 +1506,10 @@ if (!user && !isAuthView) {
         
         {/* 🧭 1. แถบเนวิเกเตอร์ (Navbar) - โปร่งแสงรับมิติด้านหลัง */}
         <nav className="flex justify-between items-center px-6 md:px-12 py-5 border-b border-slate-800 bg-slate-950/70 backdrop-blur-xl sticky top-0 z-50">
-          <div className="flex items-center">
-            <img 
-              src="/LogoSmartLabel.png" 
-              alt="ToppySmart SmartLabel Logo" 
-              className="h-20 md:h-24 w-auto object-contain hover:scale-105 transition-transform duration-300"
-            />
-          </div>
+          <div className="text-2xl font-black text-blue-600 flex items-center gap-2">
+            <span className="animate-float inline-block">📦</span> SmartLabel
+          </div>{/* 🧭 Logo เดิม */}
+
           <div className="flex gap-4 items-center">
             <button 
               onClick={() => setIsAuthView(true)} 
