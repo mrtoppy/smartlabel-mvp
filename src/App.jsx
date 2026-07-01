@@ -5,7 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { auth, db } from './firebase'; 
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, getAuth, sendPasswordResetEmail } from "firebase/auth";
 import { initializeApp, getApps } from "firebase/app";
-import { collection, addDoc, getDocs, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, setDoc, where, updateDoc, increment, deleteDoc, Timestamp } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, setDoc, where, updateDoc, increment, deleteDoc, Timestamp, limit} from "firebase/firestore";
 
 import generatePayload from 'promptpay-qr';
 
@@ -270,25 +270,28 @@ SmartLabel ยินดีให้บริการครับ ✅
   const [allChats, setAllChats] = useState([]); // เก็บแชททั้งหมด
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false); // เปิด/ปิด Pop-up
 
-  // 📦 ฟังก์ชันเบิกเลขพัสดุจากคลังสำรอง (Firestore Barcode Pool)
+  // 📦 ฟังก์ชันเบิกเลขพัสดุ (ฉบับคลังส่วนกลาง Global Pool ปลดล็อกสิทธิ์ 100%)
   const getBarcodeFromPool = async () => {
     try {
-      // ค้นหาเลขที่ "ว่าง (available)" ของร้านนี้ และดึงมาแค่ 1 เลข
+      console.log("🔍 กำลังค้นหาเลขพัสดุในคลังส่วนกลาง (Global Pool)...");
+      
+      // ⚡ ค้นหาแค่ "เลขที่สถานะว่าง" โดยไม่สนว่าใครเป็นคนอัปโหลด
       const q = query(
         collection(db, "barcode_pool"),
-        where("ownerId", "==", userOwnerId),
-        where("status", "==", "available"),
+        where("status", "==", "available"), 
         limit(1) 
       );
       
       const snapshot = await getDocs(q);
       
       if (!snapshot.empty) {
-        const barcodeDoc = snapshot.docs[0];
-        const trackingNumber = barcodeDoc.data().trackingNumber;
+        const targetDoc = snapshot.docs[0];
+        const trackingNumber = targetDoc.data().trackingNumber;
         
-        // 🔄 อัปเดตสถานะเลขนี้เป็น "ถูกใช้งานแล้ว (used)" ทันที เพื่อป้องกันแอดมินคนอื่นดึงซ้ำ
-        await updateDoc(doc(db, "barcode_pool", barcodeDoc.id), {
+        console.log(`🎯 เยี่ยม! พบเลขพัสดุพร้อมใช้งานจากคลังกลาง: ${trackingNumber}`);
+        
+        // 🔄 อัปเดตสถานะในฐานข้อมูลให้เป็น used ทันที
+        await updateDoc(doc(db, "barcode_pool", targetDoc.id), {
           status: "used",
           usedBy: user?.email || "Staff",
           usedAt: serverTimestamp()
@@ -297,9 +300,10 @@ SmartLabel ยินดีให้บริการครับ ✅
         return trackingNumber;
       }
       
-      return null; // ถ้าคลังไม่มีเลขว่างเลย จะส่งค่า null กลับไป
+      console.log("⚠️ คลังเลขพัสดุส่วนกลางว่างเปล่า!");
+      return null; 
     } catch (error) {
-      console.error("Error fetching barcode from pool:", error);
+      console.error("❌ ท่อดึงเลขพัง! สาเหตุคือ:", error);
       return null;
     }
   };
