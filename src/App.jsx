@@ -11,6 +11,8 @@ import generatePayload from 'promptpay-qr';
 
 import FacebookLoginRaw from 'react-facebook-login/dist/facebook-login-render-props';
 
+import Papa from 'papaparse';
+
 
 {/*import { messaging } from './firebase'; // import ตัวที่เราเพิ่งสร้างเมื่อกี้
 import { getToken, onMessage } from "firebase/messaging";*/}
@@ -125,68 +127,110 @@ export default function App() {
   const [connectedPages, setConnectedPages] = useState([]); // เก็บรายชื่อเพจที่ดึงมาจาก Facebook
   const [selectedPages, setSelectedPages] = useState([]);   // เก็บ ID เพจที่แม่ค้าติ๊กเลือกจะดูดแชท
 
+  // 📦 State สำหรับเก็บสถิติคลังเลขพัสดุสำรอง
+  const [barcodeStats, setBarcodeStats] = useState({ available: 0, used: 0 });
+
   // 🔥 ฟังก์ชันช่วยก๊อปปี้ข้อความ
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
     alert('คัดลอกลงคลิปบอร์ดแล้ว! นำไปวาง(Paste) ได้เลยครับ 📋');
   };
 
-  const handleCopyTrackingMessage = async (order) => {
-      // 1. ดึงเลขพัสดุจากช่องกรอก หรือจากฐานข้อมูล
-      const finalTracking = trackingInputs[order.id] || order.trackingNum;
-
-      if (!finalTracking) {
-        alert("รบกวนตรวจสอบ 'เลขพัสดุ' ในช่องก่อนกดส่งนะครับท่าน CEO!");
-        return;
-      }
-
-      // 2. ⚡ ถ้าระบบตรวจสอบแล้วพบ pageId และ senderId จากแชท (เหมือนในภาพ image_de2385.jpg)
-      if (order.pageId && order.senderId) {
+  const handleUploadBarcodeCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // ⚡ จุดที่ 1: เรียกใช้ Papa.parse ผ่านตัวแปรหลัก (แก้บั๊ก parse not defined)
+    Papa.parse(file, {
+      skipEmptyLines: true,
+      complete: async (results) => {
+        const trackingNumbers = results.data.flat().filter(item => item.trim() !== '');
+        
         try {
-          // ยิง Fetch API ไปที่หลังบ้าน webhook.js
-          const response = await fetch('/api/webhook', { // 🛑 ปรับ Path ตรงนี้ให้ตรงกับ Route หลังบ้านของท่านนะครับ เช่น /api/webhook
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'send_tracking',
-              pageId: order.pageId,
-              senderId: order.senderId,
-              trackingNum: finalTracking,
-              customerName: order.customerName
-            })
-          });
-
-          const data = await response.json();
-          if (data.success) {
-            alert(`⚡ ยิงเลขพัสดุ ${finalTracking} เข้า Messenger คุณ ${order.customerName || ''} เรียบร้อยครับท่าน CEO!`);
-            return; // ส่งสำเร็จ จบงานทันทีไม่ต้องก๊อปวาง
-          } else {
-            console.error("Webhook error:", data.error);
+          const batch = []; 
+          for (const tracking of trackingNumbers) {
+            const cleanTracking = tracking.trim();
+            
+            // ⚡ จุดที่ 2: ใช้เลขพัสดุ (cleanTracking) เป็น Document ID ไปเลย ป้องกันบั๊ก setDoc และกันเลขซ้ำ
+            const docRef = doc(db, "barcode_pool", cleanTracking); 
+            
+            batch.push(setDoc(docRef, {
+              trackingNumber: cleanTracking,
+              status: "available",
+              ownerId: userOwnerId, 
+              addedAt: serverTimestamp()
+            }));
           }
+          await Promise.all(batch);
+          alert(`🎉 นำเข้าเลขพัสดุสำเร็จ ${trackingNumbers.length} เลขครับ!`);
+          
+          // ล้างค่า input file เพื่อให้อัปโหลดไฟล์เดิมซ้ำได้ถ้าต้องการ
+          e.target.value = null; 
+
         } catch (error) {
-          console.error("Failed to send automatic chat:", error);
+          console.error("Error importing:", error);
+          alert("เกิดข้อผิดพลาดในการนำเข้า กรุณาเช็ค Console ครับ");
         }
       }
+    });
+  };
 
-      // 3. 📋 โหมดสำรอง (Fallback): ถ้าไม่มีรหัสแชท หรือระบบบอทขัดข้อง ให้ก๊อปปี้ลงคลิปบอร์ดแบบเดิมทันที
-      const message = `
-  ขอบคุณที่อุดหนุนครับ! 🙏
-  รายการ: ${order.customerName || 'คุณลูกค้า'}
-  ยอดชำระ: ${order.isCOD ? `COD ${order.codAmount} บาท` : 'โอนเงินแล้ว'}
-  📦 เลขพัสดุของคุณคือ: ${finalTracking}
-  🚚 ตรวจสอบสถานะ: https://track.thailandpost.co.th/?trackNumber=${finalTracking}
+  const handleCopyTrackingMessage = async (order) => {
+    // 1. ดึงเลขพัสดุจากช่องกรอก หรือจากฐานข้อมูล
+    const finalTracking = trackingInputs[order.id] || order.trackingNum;
 
-  SmartLabel ยินดีให้บริการครับ ✅
-      `.trim();
+    if (!finalTracking) {
+      alert("รบกวนตรวจสอบ 'เลขพัสดุ' ในช่องก่อนกดส่งนะครับท่าน CEO!");
+      return;
+    }
 
-      navigator.clipboard.writeText(message)
-        .then(() => {
-          alert("📋 ระบบคัดลอกข้อความแจ้งเลขพัสดุลงคลิปบอร์ดให้แทนเรียบร้อยครับ!");
-        })
-        .catch(err => {
-          console.error('Error in copying:', err);
+    // 2. ⚡ ถ้าระบบตรวจสอบแล้วพบ pageId และ senderId จากแชท (เหมือนในภาพ image_de2385.jpg)
+    if (order.pageId && order.senderId) {
+      try {
+        // ยิง Fetch API ไปที่หลังบ้าน webhook.js
+        const response = await fetch('/api/webhook', { // 🛑 ปรับ Path ตรงนี้ให้ตรงกับ Route หลังบ้านของท่านนะครับ เช่น /api/webhook
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'send_tracking',
+            pageId: order.pageId,
+            senderId: order.senderId,
+            trackingNum: finalTracking,
+            customerName: order.customerName
+          })
         });
-    };
+
+        const data = await response.json();
+        if (data.success) {
+          alert(`⚡ ยิงเลขพัสดุ ${finalTracking} เข้า Messenger คุณ ${order.customerName || ''} เรียบร้อยครับท่าน CEO!`);
+          return; // ส่งสำเร็จ จบงานทันทีไม่ต้องก๊อปวาง
+        } else {
+          console.error("Webhook error:", data.error);
+        }
+      } catch (error) {
+        console.error("Failed to send automatic chat:", error);
+      }
+    }
+
+    // 3. 📋 โหมดสำรอง (Fallback): ถ้าไม่มีรหัสแชท หรือระบบบอทขัดข้อง ให้ก๊อปปี้ลงคลิปบอร์ดแบบเดิมทันที
+    const message = `
+ขอบคุณที่อุดหนุนครับ! 🙏
+รายการ: ${order.customerName || 'คุณลูกค้า'}
+ยอดชำระ: ${order.isCOD ? `COD ${order.codAmount} บาท` : 'โอนเงินแล้ว'}
+📦 เลขพัสดุของคุณคือ: ${finalTracking}
+🚚 ตรวจสอบสถานะ: https://track.thailandpost.co.th/?trackNumber=${finalTracking}
+
+SmartLabel ยินดีให้บริการครับ ✅
+    `.trim();
+
+    navigator.clipboard.writeText(message)
+      .then(() => {
+        alert("📋 ระบบคัดลอกข้อความแจ้งเลขพัสดุลงคลิปบอร์ดให้แทนเรียบร้อยครับ!");
+      })
+      .catch(err => {
+        console.error('Error in copying:', err);
+      });
+  };
   
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('maker'); 
@@ -226,6 +270,39 @@ export default function App() {
   const [allChats, setAllChats] = useState([]); // เก็บแชททั้งหมด
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false); // เปิด/ปิด Pop-up
 
+  // 📦 ฟังก์ชันเบิกเลขพัสดุจากคลังสำรอง (Firestore Barcode Pool)
+  const getBarcodeFromPool = async () => {
+    try {
+      // ค้นหาเลขที่ "ว่าง (available)" ของร้านนี้ และดึงมาแค่ 1 เลข
+      const q = query(
+        collection(db, "barcode_pool"),
+        where("ownerId", "==", userOwnerId),
+        where("status", "==", "available"),
+        limit(1) 
+      );
+      
+      const snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+        const barcodeDoc = snapshot.docs[0];
+        const trackingNumber = barcodeDoc.data().trackingNumber;
+        
+        // 🔄 อัปเดตสถานะเลขนี้เป็น "ถูกใช้งานแล้ว (used)" ทันที เพื่อป้องกันแอดมินคนอื่นดึงซ้ำ
+        await updateDoc(doc(db, "barcode_pool", barcodeDoc.id), {
+          status: "used",
+          usedBy: user?.email || "Staff",
+          usedAt: serverTimestamp()
+        });
+        
+        return trackingNumber;
+      }
+      
+      return null; // ถ้าคลังไม่มีเลขว่างเลย จะส่งค่า null กลับไป
+    } catch (error) {
+      console.error("Error fetching barcode from pool:", error);
+      return null;
+    }
+  };
 
   // 📡 ฟังก์ชันขอเลขพัสดุ (อัปเกรดรองรับ EMS/ลงทะเบียน/พัสดุ)
   const fetchRealTrackingFromTHP = async (type = '1') => {
@@ -261,7 +338,6 @@ export default function App() {
       return `TH${randomNum}TH`;
     }
   };
-
 
     // 📥 1. State สำหรับเก็บแชท (ใช้ชื่อ incomingChats ให้ตรงกับโค้ด UI ของท่าน CEO)
 
@@ -477,6 +553,29 @@ export default function App() {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     }, []);
+
+    // 📡 เรดาร์สแกนคลังเลขพัสดุ (Real-time Barcode Pool)
+  useEffect(() => {
+    // ให้เรดาร์ทำงานเฉพาะตอนเป็น SuperAdmin และมีรหัสเถ้าแก่แล้วเท่านั้น
+    if (userRole !== 'SuperAdmin' || !userOwnerId) return;
+    
+    const q = query(collection(db, "barcode_pool"), where("ownerId", "==", userOwnerId));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      let availableCount = 0;
+      let usedCount = 0;
+      
+      // นับแยกกล่องว่าอันไหนว่าง อันไหนใช้แล้ว
+      snapshot.forEach((doc) => {
+        if (doc.data().status === 'available') availableCount++;
+        if (doc.data().status === 'used') usedCount++;
+      });
+      
+      setBarcodeStats({ available: availableCount, used: usedCount });
+    });
+
+    return () => unsubscribe();
+  }, [userRole, userOwnerId]);
 
   // 📡 ระบบดึงข้อมูล Dashboard และ History แบบ Real-time (ฉบับอัปเกรดแยกมิติสถิติตามสิทธิ์ผู้ใช้งาน)
   useEffect(() => {
@@ -719,7 +818,7 @@ export default function App() {
     }
   }, [activeTab, userRole, userOwnerId]);
 
-const handleAuth = async (e) => {
+  const handleAuth = async (e) => {
     e.preventDefault();
     const emailInput = e.target.email.value.trim();
     const password = e.target.password.value;
@@ -1102,7 +1201,15 @@ const handleAuth = async (e) => {
           for (const order of orders) {
             // 🎯 ดำเนินการเฉพาะงานใหม่ที่ยังไม่มีการบันทึก และมีข้อมูลจัดส่ง
             if (order.parsedData && !order.isSaved && !order.trackingNum) {
-              const autoTracking = await fetchRealTrackingFromTHP('1'); 
+              
+              // ⚡ สับท่อ 1: พยายามเบิกเลขพัสดุของแท้จากคลังสำรองก่อน
+              let autoTracking = await getBarcodeFromPool();
+              
+              // 🛡️ สับท่อ 2 (แผนสำรอง): ถ้าเลขในคลังหมดเกลี้ยง! ค่อยวิ่งกลับไปใช้ระบบสุ่ม/API เดิม
+              if (!autoTracking) {
+                console.log("⚠️ เลขพัสดุในคลังหมด! ระบบสลับไปใช้ API/สุ่มเลขสำรองอัตโนมัติ");
+                autoTracking = await fetchRealTrackingFromTHP('1'); 
+              }
               
               if (thpToken && autoTracking) {
                 await preloadOrderToTHP(thpToken, order, autoTracking);
@@ -2495,6 +2602,36 @@ if (!user && isAuthView) {
       {activeTab === 'shops' && userRole === 'SuperAdmin' ? (
          <div className="bg-white p-8 rounded-3xl shadow-sm border-t-4 border-blue-500">
            <h2 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-2">🏢 รายชื่อร้านค้าในระบบ (Tenants)</h2>
+           <div className="mb-6 p-6 bg-slate-50 border border-slate-200 rounded-2xl flex flex-wrap items-center gap-4">
+            {/* 📊 แดชบอร์ดคลังเลขพัสดุ (Barcode Pool Stats) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-2xl flex items-center justify-between shadow-sm transform transition-all hover:scale-[1.02]">
+                <div>
+                  <p className="text-emerald-700 font-bold text-sm mb-1 uppercase tracking-wider">🟢 เลขพร้อมใช้งาน (Available)</p>
+                  <p className="text-5xl font-black text-emerald-600">{barcodeStats.available} <span className="text-lg font-bold">เลข</span></p>
+                </div>
+                <div className="text-6xl drop-shadow-md">📦</div>
+              </div>
+              
+              <div className="bg-rose-50 border border-rose-200 p-6 rounded-2xl flex items-center justify-between shadow-sm transform transition-all hover:scale-[1.02]">
+                <div>
+                  <p className="text-rose-700 font-bold text-sm mb-1 uppercase tracking-wider">🔴 ถูกใช้งานไปแล้ว (Used)</p>
+                  <p className="text-5xl font-black text-rose-600">{barcodeStats.used} <span className="text-lg font-bold">เลข</span></p>
+                </div>
+                <div className="text-6xl drop-shadow-md">🏷️</div>
+              </div>
+            </div>
+            <div className="flex-1">
+              <label className="block text-sm font-black text-slate-700 mb-2">นำเข้าเลขพัสดุ (CSV)</label>
+              <input 
+                type="file" 
+                accept=".csv"
+                onChange={handleUploadBarcodeCSV} // เรียกใช้ฟังก์ชันที่ข้าน้อยเตรียมไว้ให้ครับ
+                className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-black file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
+              />
+              <p className="text-xs text-slate-400 mt-2 italic">* เลือกไฟล์ CSV ที่มีเลขพัสดุเรียงต่อกัน 1 คอลัมน์</p>
+            </div>
+          </div>
            <div className="overflow-hidden border border-slate-200 rounded-2xl">
              <table className="w-full text-sm text-left">
                <thead className="bg-slate-50 uppercase text-xs font-black text-slate-500 tracking-wider">
