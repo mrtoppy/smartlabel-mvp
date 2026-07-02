@@ -1689,22 +1689,22 @@ if (!user && !isAuthView) {
             <div className="bg-slate-900/40 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-xl card-hover">
               <div className="text-5xl mb-5 animate-float inline-block">📡</div>
               <h3 className="text-xl font-black mb-3 text-white">Direct THP API</h3>
-              <p className="text-slate-400 text-sm leading-relaxed font-medium">ต่อท่อตรงเข้าเซิร์ฟเวอร์ไปรษณีย์ไทยของจริง พิมพ์ใบปะหน้าความร้อนพร้อมบาร์โค้ดสากลทันที</p>
+              <p className="text-slate-400 text-sl leading-relaxed font-medium">ต่อท่อตรงเข้าเซิร์ฟเวอร์ไปรษณีย์ไทยของจริง พิมพ์ใบปะหน้าความร้อนพร้อมบาร์โค้ดสากลทันที</p>
             </div>
             <div className="bg-slate-900/40 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-xl card-hover">
               <div className="text-5xl mb-5 animate-float inline-block">⚡</div>
               <h3 className="text-xl font-black mb-3 text-white">Auto Chat Send</h3>
-              <p className="text-slate-400 text-sm leading-relaxed font-medium">ปุ่มสายฟ้าคลิกเดียวส่งเลขพัสดุและลิงก์ติดตามสถานะเด้งกลับเข้าแชทลูกค้า ไม่ต้องเปิดสลับจอ</p>
+              <p className="text-slate-400 text-sl leading-relaxed font-medium">ปุ่มสายฟ้าคลิกเดียวส่งเลขพัสดุและลิงก์ติดตามสถานะเด้งกลับเข้าแชทลูกค้า ไม่ต้องเปิดสลับจอ</p>
             </div>
             <div className="bg-slate-900/40 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-xl card-hover">
               <div className="text-5xl mb-5 animate-float inline-block">🤖</div>
               <h3 className="text-xl font-black mb-3 text-white">Smart Inbox</h3>
-              <p className="text-slate-400 text-sm leading-relaxed font-medium">ดูดแชทลูกค้าสกัดชื่อ เบอร์โทร รหัสไปรษณีย์ และแชร์ข้อมูลให้ทีมงานพนักงานแพ็กช่วยส่องพร้อมกัน</p>
+              <p className="text-slate-400 text-sl leading-relaxed font-medium">ดูดแชทลูกค้าสกัดชื่อ เบอร์โทร รหัสไปรษณีย์ และแชร์ข้อมูลให้ทีมงานพนักงานแพ็กช่วยส่องพร้อมกัน</p>
             </div>
             <div className="bg-slate-900/40 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-xl card-hover">
               <div className="text-5xl mb-5 animate-float inline-block">👥</div>
               <h3 className="text-xl font-black mb-3 text-white">Staff Management</h3>
-              <p className="text-slate-400 text-sm leading-relaxed font-medium">ระบบกักข้อมูลพนักงานรายบุคคล แอดมินแพ็กจะเห็นและสกัดได้เฉพาะงานตัวเอง ป้องกันส่งซ้ำ</p>
+              <p className="text-slate-400 text-sl leading-relaxed font-medium">ระบบกักข้อมูลพนักงานรายบุคคล แอดมินแพ็กจะเห็นและสกัดได้เฉพาะงานตัวเอง ป้องกันส่งซ้ำ</p>
             </div>
           </div>
         </section>
