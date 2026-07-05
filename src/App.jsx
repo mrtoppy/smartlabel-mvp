@@ -1449,10 +1449,10 @@ const handleExportCSV = () => {
         amountPaid = 500;
         labelCount = 2000;
         packageName = "🔥 Popular (2,000 ใบ)";
-      } else if (selectedPackage === 10000) {
+      } else if (selectedPackage === 5000) {
         amountPaid = 1000;
-        labelCount = 10000;
-        packageName = "💎 Ultimate Premium (10,000 ใบ)";
+        labelCount = 5000;
+        packageName = "💎 Ultimate Premium (5,000 ใบ)";
       }
 
       // (1) บันทึกข้อมูลลง Firestore ให้โครงสร้างฟิลด์ตรงกับหน้า SuperAdmin 100%
@@ -1521,7 +1521,7 @@ const handleExportCSV = () => {
       
       // ถ้าแกะแล้วยังเป็น 0 ให้ดักสิทธิ์ตามสเกลราคาเพื่อความปลอดภัยสูงสุด
       if (quotaToAdd === 0) {
-        quotaToAdd = amountPaid === 1000 ? 10000 : amountPaid === 500 ? 2000 : 500;
+        quotaToAdd = amountPaid === 1000 ? 5000 : amountPaid === 500 ? 2000 : 500;
       }
 
       console.log(`กำลังดำเนินการเติมโควตาจำนวน: ${quotaToAdd} ใบ ให้รหัสผู้ใช้: ${targetUserId}`);
@@ -1728,7 +1728,7 @@ if (!user && !isAuthView) {
                   <ul className="text-sm text-slate-400 mb-10 space-y-4 font-medium border-t border-slate-800 pt-6">
                     <li className="flex items-center gap-2">✅ ระบบสกัดที่อยู่จากข้อความแชท</li>
                     <li className="flex items-center gap-2">✅ ระบบจำจดลูกค้าเก่าอัตโนมัติ (CRM)</li>
-                    <li className="flex items-center gap-2">✅ ออกเลขพัสดุจำลองรูปแบบเสมือนจริง</li>
+                    <li className="flex items-center gap-2">✅ ออกเลข EMS ของไปรษณีย์ไทย</li>
                     <li className="flex items-center gap-2">✅ ระบบพิมพ์ซ้ำและประวัติสถิติพื้นฐาน</li>
                   </ul>
                 </div>
@@ -1742,14 +1742,14 @@ if (!user && !isAuthView) {
                   <div className="mb-6">
                     <p className="text-blue-400 font-black mb-2 tracking-widest uppercase text-xs">Ultimate Automation</p>
                     <p className="text-6xl font-black mb-2 text-white">฿1,000</p>
-                    <p className="text-emerald-400 text-sm font-black">ได้รับ 10,000 จ่าหน้า (เหลือเพียง 0.1 บ./ใบ)</p>
+                    <p className="text-emerald-400 text-sm font-black">ได้รับ 5,000 จ่าหน้า (เหลือเพียง 0.2 บ./ใบ)</p>
                   </div>
                   <ul className="text-sm text-slate-300 mb-10 space-y-4 font-medium border-t border-slate-800 pt-6">
-                    <li className="flex items-center gap-3 text-blue-300 font-bold">🚀 เชื่อม API ไปรษณีย์ไทยของจริง (PostOne)</li>
-                    <li className="flex items-center gap-3 text-indigo-300 font-bold">⚡ ปุ่มสายฟ้ายิงแจ้งเลขพัสดุเข้าแชทอัตโนมัติ</li>
-                    <li className="flex items-center gap-3 text-emerald-300 font-bold">🤖 ดูดแชท Facebook Page ไม่อั้นเรียลไทม์</li>
+                    <li className="flex items-center gap-3 text-blue-300 font-bold">🚀 เชื่อม API ไปรษณีย์ไทย (PostOne)</li>
+                    <li className="flex items-center gap-3 text-indigo-300 font-bold">⚡ ปุ่มสายฟ้ายิงแจ้งเลขพัสดุเข้าแชทอัตโนมัติ 5,000 ครั้ง</li>
+                    <li className="flex items-center gap-3 text-emerald-300 font-bold">🤖 ดูดแชท Facebook Page ฟรี 30 วัน</li>
                     <li className="flex items-center gap-3">✅ แดชบอร์ดคัดแยกสถิติพนักงานรายบุคคล</li>
-                    <li className="flex items-center gap-3">✅ ดาวน์โหลดไฟล์บัญชีความร้อนด่วน (CSV)</li>
+                    <li className="flex items-center gap-3">✅ ระบบจัดการบัญชียอดขาย และดาวโหลดรายงาน (CSV)</li>
                   </ul>
                 </div>
                 <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black shadow-xl shadow-blue-500/40">อัปเกรดเป็นระดับโปร</button>
@@ -2249,10 +2249,10 @@ if (!user && isAuthView) {
                 <p className="text-xs text-slate-500 mt-1 font-medium">500 บาท</p>
               </div>
 
-              {/* 💎 แพ็กเกจ Premium 10,000 ใบ */}
-              <div onClick={() => setSelectedPackage(10000)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 10000 ? 'border-indigo-500 bg-indigo-50 scale-[1.03] shadow-md shadow-indigo-500/20' : 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'}`}>
-                {selectedPackage === 10000 && <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">พรีเมียม 💎</div>}
-                <p className={`font-black text-xl ${selectedPackage === 10000 ? 'text-indigo-700' : 'text-slate-700'}`}>10,000 ใบ</p>
+              {/* 💎 แพ็กเกจ Premium 5,000 ใบ */}
+              <div onClick={() => setSelectedPackage(5000)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 5000 ? 'border-indigo-500 bg-indigo-50 scale-[1.03] shadow-md shadow-indigo-500/20' : 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'}`}>
+                {selectedPackage === 5000 && <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">พรีเมียม 💎</div>}
+                <p className={`font-black text-xl ${selectedPackage === 5000 ? 'text-indigo-700' : 'text-slate-700'}`}>5,000 ใบ</p>
                 <p className="text-xs text-indigo-600 mt-1 font-black">+ ดูดแชท 30 วัน</p>
                 <p className="text-xs text-indigo-600 mt-1 font-black">1,000 บาท</p>
               </div>
