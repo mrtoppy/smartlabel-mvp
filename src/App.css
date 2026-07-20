@@ -182,3 +182,34 @@
     border-right-color: var(--border);
   }
 }
+
+/* ========================================== */
+/* ⭐️ CTO Fix: ปรับสีช่องกรอกข้อความให้ชัดเจน (ใช้ได้ทุกโปรเจกต์) */
+/* ========================================== */
+
+/* 1. สีตัวอักษรและ Placeholder พื้นฐาน (สำหรับหน้าจอปกติ/สว่าง) */
+input, textarea, select {
+  color: #111827 !important; 
+}
+input::placeholder, textarea::placeholder {
+  color: #9ca3af !important; 
+  opacity: 1 !important; 
+}
+
+/* 2. ปรับขอบโฟกัส (เอาขอบเดิมออก แล้วใส่ขอบสีฟ้าอ่อนที่ดูพรีเมียมแทน) */
+/* หมายเหตุ: ถ้าโปรเจกต์นั้นใช้ Tailwind UI อยู่แล้ว ลบบรรทัด box-shadow ออกได้เลยครับ */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4) !important; 
+}
+
+/* 3. ⭐️ ตัวดักจับโหมดมืด (Dark Mode) อัตโนมัติ */
+@media (prefers-color-scheme: dark) {
+  input, textarea, select {
+    color: #f3f4f6 !important; /* เปลี่ยนตัวหนังสือเป็นสีขาวเทาเมื่อจอเป็นโหมดมืด */
+  }
+  input::placeholder, textarea::placeholder {
+    color: #6b7280 !important; /* เปลี่ยน Placeholder เป็นสีเทาเข้ม */
+    opacity: 1 !important;
+  }
+}
