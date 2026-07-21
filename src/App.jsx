@@ -1047,23 +1047,39 @@ SmartLabel ยินดีให้บริการครับ ✅
   const handleSaveProfile = async () => {
       try {
         if (!user) return;
-        
         const userRef = doc(db, "users", user.uid);
         
-        // ⚡ ปรับปรุงใน App.jsx ตอนที่แม่ค้ากดยืนยันตั้งค่าร้าน
+        // 🔍 หากุญแจของเพจที่ลูกค้าติ๊กเลือก
+        let pageTokenToSave = "";
+        let pageIdToSave = "";
+        
+        // สมมติว่าระบบเราให้เลือกทีละ 1 เพจหลักก่อน
+        if (selectedPages.length > 0 && connectedPages.length > 0) {
+            const matchedPage = connectedPages.find(p => p.id === selectedPages[0]);
+            if (matchedPage) {
+                pageTokenToSave = matchedPage.access_token;
+                pageIdToSave = matchedPage.id;
+            }
+        }
+        
         await setDoc(userRef, {
           storeName: tempProfile.name,
           phone: tempProfile.phone,
           address: tempProfile.address,
-          connectedPages: selectedPages,
+          specialLine1: tempProfile.specialLine1 || "",
+          specialLine2: tempProfile.specialLine2 || "",
+          licenseNo: tempProfile.licenseNo || "",
+          contractNo: tempProfile.contractNo || "",
+          // 🔥 เซฟกุญแจเพจลง Database ตรงนี้ครับ
+          facebookPageId: pageIdToSave,
+          pageAccessToken: pageTokenToSave,
+          connectedPages: selectedPages, // เก็บ array ไอดีเพจที่เลือก
           updatedAt: serverTimestamp()
         }, { merge: true });
 
-        // 2. 🔄 อัปเดตตะกร้าหลัก (เพื่อให้หน้าเว็บด้านหลังเปลี่ยนชื่อ/เบอร์ทันทีโดยไม่ต้อง F5)
         setStoreProfile(tempProfile);
-
         alert("บันทึกข้อมูลร้านค้าและตั้งค่าเพจสำเร็จเรียบร้อยครับ!");
-        setIsSettingsOpen(false); // ปิดหน้าต่าง
+        setIsSettingsOpen(false); 
       } catch (error) {
         console.error("Error saving profile:", error);
         alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลครับ");
@@ -2428,44 +2444,22 @@ if (!user && isAuthView) {
                 // 📍 ปรับปรุงท่อน callback ของ FacebookLogin ใน App.jsx ให้ดึง Page Token ตัวจริง
                 callback={async (response) => {
                   console.log("ล็อกอินบุคคลสำเร็จ:", response);
-                  
                   if (response.accessToken) {
-                    const userAccessToken = response.accessToken;
-
                     try {
-                      // 1. ยิง API ไปถาม Facebook เพื่อขอรายชื่อเพจและ Page Access Token ของแต่ละเพจ
-                      const fbPageUrl = `https://graph.facebook.com/v20.0/me/accounts?access_token=${userAccessToken}`;
+                      const fbPageUrl = `https://graph.facebook.com/v20.0/me/accounts?access_token=${response.accessToken}`;
                       const fbResponse = await fetch(fbPageUrl);
                       const fbData = await fbResponse.json();
 
                       if (fbData.data && fbData.data.length > 0) {
-                        // ในที่นี้สมมติว่าเลือกเพจแรกที่เจอ หรือเพจที่แมตช์ (ท่านสามารถทำระบบให้เลือกเพจได้)
-                        const selectedPage = fbData.data[0]; 
-                        const realPageAccessToken = selectedPage.access_token; // 🔑 นี่คือราชาโทเค็นของเพจตัวจริง!
-                        const pageId = selectedPage.id;
-
+                        // 🔥 แค่ดึงรายชื่อเพจและกุญแจทั้งหมดมาพักไว้ใน State ก่อน
                         setConnectedPages(fbData.data);
-
-                        // 2. บันทึก "Page Access Token" ตัวจริงและรหัสเพจลง Firestore
-                        if (user) {
-                          const userRef = doc(db, "users", user.uid);
-                          await updateDoc(userRef, {
-                            pageAccessToken: realPageAccessToken, // กุญแจส่งข้อความในนามเพจ
-                            facebookPageId: pageId,               // รหัสเพจสำหรับทำ Webhook ดักจับแชท
-                            updatedAt: serverTimestamp()
-                          });
-                          console.log("✅ ระบบดึงและบันทึก Page Access Token ตัวจริงลง Firebase เรียบร้อย!");
-                          alert(`เชื่อมต่อเพจ "${selectedPage.name}" สำเร็จเรียบร้อยครับ!`);
-                        }
+                        alert(`ดึงรายชื่อเพจสำเร็จ! กรุณาติ๊กเลือกเพจที่ต้องการด้านล่าง แล้วกด "บันทึก" ครับ`);
                       } else {
-                        alert("❌ ไม่พบเพจ Facebook ที่เชื่อมต่อกับบัญชีนี้ กรุณาตรวจสอบสิทธิ์ครับ");
+                        alert("❌ ไม่พบเพจ Facebook ที่เชื่อมต่อกับบัญชีนี้");
                       }
                     } catch (err) {
                       console.error("เกิดข้อผิดพลาดในการดึง Page Token:", err);
-                      alert("เกิดข้อผิดพลาดระบบหลังบ้านในการเชื่อมต่อเพจ");
                     }
-                  } else {
-                    alert("การล็อกอิน Facebook ล้มเหลว หรือไม่ได้รับสิทธิ์");
                   }
                 }}
                 render={renderProps => (
