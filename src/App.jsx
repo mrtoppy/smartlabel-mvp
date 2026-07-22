@@ -2132,7 +2132,27 @@ if (!user && isAuthView) {
   return (
     <div className="min-h-screen bg-slate-50 p-6 font-sans print:bg-white print:p-0 relative">
       <style>{`
-        @media print { @page { size: 100mm 150mm; margin: 0; } body, html { background-color: white; margin: 0; padding: 0; -webkit-print-color-adjust: exact; } ::-webkit-scrollbar { display: none; } .thermal-label { width: 100mm !important; min-height: 148mm !important; height: auto !important; padding: 5mm !important; box-sizing: border-box !important; page-break-after: always !important; page-break-inside: avoid !important; margin: 0 !important; border: none !important; box-shadow: none !important; } }
+        @media print {
+          @page {
+            size: 100mm 150mm; /* ล็อกขนาดสติกเกอร์ความร้อนมาตรฐาน */
+            margin: 0 !important;
+          }
+          body {
+            margin: 0;
+            -webkit-print-color-adjust: exact !important;
+          }
+          .print\:hidden {
+            display: none !important;
+          }
+          /* แก้จุดนี้: ให้แผ่เต็มหน้าและไม่บังคับตัดหน้าเปล่าพ่วงท้าย */
+          .thermal-label {
+            width: 100% !important;
+            max-height: 100vh !important;
+            box-sizing: border-box !important;
+            page-break-inside: avoid !important;
+            page-break-after: avoid !important; /* เปลี่ยนเป็น avoid ป้องกันหน้าเปล่าโผล่ */
+          }
+        }
         .btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         .btn-cute:hover { transform: scale(1.05) translateY(-2px); box-shadow: 0 5px 15px -5px rgba(0,0,0,0.2); }
         .card-hover { transition: transform 0.3s ease, box-shadow 0.3s ease; }
@@ -2140,6 +2160,20 @@ if (!user && isAuthView) {
         .modal-enter { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         @keyframes fadeIn { from { opacity: 0; transform: scale(0.95) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
       `}</style>
+
+      {/* 🖨️ CSS พิเศษสำหรับควบคุมการพิมพ์ให้อยู่ใน 1 หน้าเป๊ะๆ */}
+      <style type="text/css" media="print">
+        {`
+          @page { 
+            size: auto; 
+            margin: 0mm; /* ฆ่าขอบกระดาษและ Header/Footer ของเบราว์เซอร์ทิ้ง */
+          }
+          body { 
+            margin: 0; 
+            padding: 0; 
+          }
+        `}
+      </style>
 
       {/* 🔥 The "WOW" Onboarding Tutorial */}
       {showTutorial && (
@@ -2741,9 +2775,10 @@ if (!user && isAuthView) {
             {/* ======================================================== */}
             {/* โซนขวา: ฟอร์มก๊อปวางเดิม และ พรีวิวพิมพ์ */}
             {/* ======================================================== */}
-            <div className="lg:col-span-8 flex flex-col lg:flex-row gap-6">
+            {/* ⚡ เติม print:block เพื่อปิดการทำงานของ flex ตอนสั่งพิมพ์ ป้องกันกระดาษยืด */}
+            <div className="lg:col-span-8 flex flex-col lg:flex-row gap-6 print:block print:m-0 print:p-0 print:w-full">
                 
-                {/* กล่องซ้ายในโซนขวา: กรอกข้อมูล */}
+                {/* กล่องซ้ายในโซนขวา: กรอกข้อมูล (ซ่อนตอนพิมพ์) */}
                 <div className="flex-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 max-h-[75vh] overflow-y-auto print:hidden">
                   <h2 className="text-xl font-black mb-6 text-gray-800 flex items-center gap-2"><span className="text-blue-500">1.</span> วางข้อความแชต</h2>
                   {orders.map((order, index) => {
@@ -2771,10 +2806,16 @@ if (!user && isAuthView) {
                 
                 {/* กล่องขวาในโซนขวา: พรีวิวพิมพ์ */}
                 <div className="flex-1 bg-slate-100/50 rounded-2xl shadow-inner border-2 border-dashed border-slate-300 max-h-[75vh] overflow-y-auto print:max-h-none print:overflow-visible print:bg-white print:border-none print:shadow-none print:m-0 print:p-0 relative print:static">
-                  <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 p-5 flex justify-between items-center z-10 print:hidden"><h2 className="text-xl font-black text-gray-800 flex items-center gap-2"><span className="text-blue-500">2.</span> ตรวจสอบและสั่งพิมพ์</h2><button onClick={handleSaveAndPrint} className="btn-cute bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2">💾 บันทึก & สั่งพิมพ์</button></div>
+                  <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 p-5 flex justify-between items-center z-10 print:hidden">
+                    <h2 className="text-xl font-black text-gray-800 flex items-center gap-2"><span className="text-blue-500">2.</span> ตรวจสอบและสั่งพิมพ์</h2>
+                    <button onClick={handleSaveAndPrint} className="btn-cute bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2">💾 บันทึก & สั่งพิมพ์</button>
+                  </div>
                   <div className="p-8 print:p-0 print:m-0">
                     {orders.filter(o => o.parsedData).map((order) => (
-                      <div key={order.id} ref={(el) => (labelRefs.current[order.id] = el)} className="w-full max-w-sm mx-auto mb-6 bg-white border-2 border-black p-3 thermal-label print:max-w-none print:mx-0 print:mb-0 print:shadow-none print:transform-none">
+                      <div key={order.id} ref={(el) => (labelRefs.current[order.id] = el)} 
+                           className="w-full max-w-sm mx-auto mb-6 bg-white border-2 border-black p-3 thermal-label 
+                                      print:max-w-none print:w-full print:mx-0 print:mb-0 print:shadow-none print:transform-none 
+                                      print:break-inside-avoid print:page-break-inside-avoid">
                         {/* Header & Admin Info */}
                         <div className="flex justify-between border-b-2 border-black pb-1 mb-2 font-bold text-[10px]">
                           <span>SmartLabel ✅</span>
