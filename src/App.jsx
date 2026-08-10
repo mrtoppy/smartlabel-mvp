@@ -236,6 +236,8 @@ SmartLabel ยินดีให้บริการครับ ✅
   const [activeTab, setActiveTab] = useState('maker'); 
   
   const [orders, setOrders] = useState([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }]);
+  // 🚚 เติม State ตัวนี้เข้าไป เพื่อจำว่าล็อตนี้ลูกค้าเลือกขนส่งอะไร (ค่าเริ่มต้นคือไปรษณีย์ไทย)
+  const [selectedCarrier, setSelectedCarrier] = useState('THP');
   const labelRefs = useRef({});
 
   const [storeProfile, setStoreProfile] = useState({ name: '', phone: '', address: '' });
@@ -1215,29 +1217,30 @@ SmartLabel ยินดีให้บริการครับ ✅
 
       if (newOrdersToSave.length > 0) {
         try {
-          const thpToken = await getTHPToken();
+          // ดึง Token ไปรษณีย์เผื่อไว้ (เฉพาะกรณีเลือกขนส่งไปรษณีย์ไทย)
+          const thpToken = selectedCarrier === 'THP' ? await getTHPToken() : null;
           const processedOrders = [];
 
           for (const order of orders) {
             // 🎯 ดำเนินการเฉพาะงานใหม่ที่ยังไม่มีการบันทึก และมีข้อมูลจัดส่ง
             if (order.parsedData && !order.isSaved && !order.trackingNum) {
               
-              // ⚡ สับท่อ 1: พยายามเบิกเลขพัสดุของแท้จากคลังสำรองก่อน
-              let autoTracking = await getBarcodeFromPool();
-              
-              // 🛡️ สับท่อ 2 (แผนสำรอง): ถ้าเลขในคลังหมดเกลี้ยง! ค่อยวิ่งกลับไปใช้ระบบสุ่ม/API เดิม
-              if (!autoTracking) {
-                console.log("⚠️ เลขพัสดุในคลังหมด! ระบบสลับไปใช้ API/สุ่มเลขสำรองอัตโนมัติ");
-                autoTracking = await fetchRealTrackingFromTHP('1'); 
-              }
-              
-              if (thpToken && autoTracking) {
-                await preloadOrderToTHP(thpToken, order, autoTracking);
+              let autoTracking = "";
+
+              // 🚚 เช็คเงื่อนไข: ถ้าเลือกระบบ "ไปรษณีย์ไทย" ถึงจะวิ่งไปขอเลข
+              if (selectedCarrier === 'THP') {
+                autoTracking = await getBarcodeFromPool();
+                if (!autoTracking) {
+                  console.log("⚠️ เลขพัสดุในคลังหมด! ระบบสลับไปใช้ API/สุ่มเลขสำรองอัตโนมัติ");
+                  autoTracking = await fetchRealTrackingFromTHP('1'); 
+                }
+                if (thpToken && autoTracking) {
+                  await preloadOrderToTHP(thpToken, order, autoTracking);
+                }
               }
 
-              // ⚡ จัดระเบียบข้อมูล Payload ให้ Flat (แบนราบ) เพื่อให้ Dashboard และประวัติพัสดุดึงไปโชว์ได้ 100%
+              // ⚡ จัดระเบียบข้อมูล Payload ให้ Flat (แบนราบ)
               const orderPayload = {
-                // 👤 ข้อมูลผู้รับ (ดึงออกมาจากชั้นใน parsedData แผ่ออกมาเป็นระดับนอก)
                 customerName: order.parsedData.customerName || "ไม่ระบุชื่อ",
                 phone: order.parsedData.phone || "ไม่ระบุเบอร์",
                 address: order.parsedData.address || "ไม่ระบุที่อยู่",
@@ -1247,19 +1250,16 @@ SmartLabel ยินดีให้บริการครับ ✅
                 codAmount: Number(order.parsedData.codAmount) || 0,
                 rawText: order.rawText || "",
                 
-                // 📦 ข้อมูลสถานะและเลขแทรคกิ้งของไปรษณีย์ไทย
+                // 📦 ข้อมูลสถานะ, เลขแทรคกิ้ง และชื่อขนส่ง
                 trackingNum: autoTracking || "",
+                carrier: selectedCarrier === 'THP' ? 'Thailand Post' : 'Other', // เก็บชื่อขนส่งลง DB ด้วย
                 status: '📦 เตรียมการส่ง',
                 
-                // 🔐 กุญแจชี้เป้าสำหรับเชื่อมโยงสิทธิ์แชทและการแสดงผล
-                ownerId: userOwnerId || "",                            // รหัสเจ้าของร้านค้า
-                pageId: order.pageId || order.parsedData.pageId || "",    // ID เพจ Facebook
-                senderId: order.senderId || order.parsedData.senderId || "", // ID แชทของลูกค้า
-                // เปลี่ยนท่อนระบุผู้ทำรายการให้ดึงจากโปรไฟล์พนักงานจริงที่กำลังนั่งแพ็กของอยู่
+                ownerId: userOwnerId || "",                            
+                pageId: order.pageId || order.parsedData.pageId || "",    
+                senderId: order.senderId || order.parsedData.senderId || "", 
                 creatorName: tempProfile.name || user?.email?.split('@')[0] || "Owner", 
                 adminEmail: user?.email || "-",
-                
-                // 📅 ตราประทับเวลา
                 createdAt: serverTimestamp()
               };
 
@@ -1268,13 +1268,13 @@ SmartLabel ยินดีให้บริการครับ ✅
 
               processedOrders.push({ ...order, trackingNum: autoTracking, isSaved: true });
             } else {
-              // 🔄 งานพิมพ์ซ้ำ (isSaved: true) ให้เก็บไว้พิมพ์อย่างเดียว ไม่ทำอะไรเพิ่ม
+              // 🔄 งานพิมพ์ซ้ำ (isSaved: true) ให้เก็บไว้พิมพ์อย่างเดียว
               processedOrders.push(order);
             }
           }
           setOrders(processedOrders);
 
-          // 💰 ตัดเครดิตเฉพาะจำนวนงานใหม่ (newOrdersToSave.length)
+          // 💰 ตัดเครดิตเฉพาะจำนวนงานใหม่
           if (userRole === 'Owner') {
             const userRef = doc(db, "users", user.uid);
             await updateDoc(userRef, { 
@@ -1294,49 +1294,77 @@ SmartLabel ยินดีให้บริการครับ ✅
       }, 1000);
     };
 
-// 🖨️ ฟังก์ชันพิมพ์ซ้ำ (Reprint) - ปรับปรุงฉบับเสถียรป้องกันอาการจอขาวน็อคกลางอากาศ
+  // 🖨️ ฟังก์ชันพิมพ์ซ้ำ (Reprint) - ล็อกการแก้ไข 100%
   const handleReprint = (oldOrder) => {
     try {
-      // 🛡️ ดักจับและป้องกันกรณี items หลุดหายจากฐานข้อมูล (ป้องกันข้อผิดพลาด .length)
       const safeItems = Array.isArray(oldOrder.items) 
         ? oldOrder.items 
         : (oldOrder.parsedData?.items && Array.isArray(oldOrder.parsedData.items) ? oldOrder.parsedData.items : []);
 
-      // 🎯 ประกอบโครงสร้างที่อยู่กลับคืนเป็นข้อความดิบ (RawText) เพื่อให้กล่องหน้าบ้านสกัดใหม่ได้เนียนตา
       const reconstructedRawText = oldOrder.rawText || 
         `${oldOrder.customerName || ''}\n${oldOrder.address || ''} ${oldOrder.zipcode || ''}\n${oldOrder.phone || ''}`;
+
+      // 🚚 ล็อกให้ Dropdown ขนส่งตรงกับของเดิมที่เคยบันทึกไว้
+      if (oldOrder.carrier === 'Thailand Post') {
+        setSelectedCarrier('THP');
+      } else {
+        setSelectedCarrier('NONE');
+      }
 
       setOrders([{
         ...oldOrder,
         id: oldOrder.id, 
         rawText: reconstructedRawText,
-        // จัดระเบียบชั้นตัวแปร parsedData คืนชีพส่งกลับหน้าบ้าน
         parsedData: {
           customerName: oldOrder.customerName || "ไม่ระบุชื่อ",
           phone: oldOrder.phone || "-",
           address: oldOrder.address || "ไม่ระบุที่อยู่",
           zipcode: oldOrder.zipcode || "",
-          items: safeItems, // Safe Mode: ถ้าไม่มีข้อมูลสินค้าจะถูกแทนที่ด้วย Array ว่างทันที ตัวแอปจะไม่น็อค
+          items: safeItems,
           isCOD: oldOrder.isCOD || false,
           codAmount: oldOrder.codAmount || 0,
           warnings: []
         },
-        isSaved: true, // มาร์คค้างไว้ว่าบันทึกแล้ว จะได้ไม่ไปตัดสิทธิ์หรือขอเลขพัสดุซ้ำ
-        trackingNum: oldOrder.trackingNum // ดึงกุญแจเลขพัสดุเดิมมาใช้จ่าหน้าต่อ
+        isSaved: true, // 🔒 ตัวแปรนี้แหละครับที่เราจะเอาไปล็อกหน้า UI
+        trackingNum: oldOrder.trackingNum || ""
       }]);
       
-      // สั่งพากระจกหน้าจอสไลด์เลื่อนขึ้นไปด้านบนสุด (หน้าสร้างจ่าหน้า) อัตโนมัติ
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
       console.error("เกิดข้อผิดพลาดในการดึงข้อมูลพิมพ์ซ้ำ:", error);
-      alert("⚠️ ขออภัยครับ ระบบไม่สามารถดึงออเดอร์นี้กลับไปพิมพ์ซ้ำได้ เนื่องจากโครงสร้างข้อมูลเดิมไม่สมบูรณ์");
+      alert("⚠️ ขออภัยครับ ระบบไม่สามารถดึงออเดอร์นี้กลับไปพิมพ์ซ้ำได้");
     }
   };
-
+  // 📝 ฟังก์ชันบันทึกเลขพัสดุที่แอดมินพิมพ์กรอกเองย้อนหลัง (อัปเกรดระบบแจ้งเตือน)
+  const handleUpdateManualTracking = async (orderId, newTrackingNum) => {
+    // 🛡️ เช็คว่าพิมพ์ข้อความมาหรือยัง ถ้ายังให้แจ้งเตือน
+    if (!newTrackingNum || !newTrackingNum.trim()) {
+      alert("⚠️ กรุณากรอกเลขพัสดุก่อนกดบันทึกครับ");
+      return;
+    }
+    
+    try {
+      const orderRef = doc(db, "orders", orderId);
+      await updateDoc(orderRef, { 
+        trackingNum: newTrackingNum.trim(), 
+        updatedAt: serverTimestamp() 
+      });
+      
+      alert("✅ บันทึกเลขพัสดุเรียบร้อยครับ!");
+      
+      // 💡 ทริคจาก CTO: หากหน้าตารางของท่านไม่ได้ใช้ onSnapshot (อัปเดตเรียลไทม์)
+      // ท่านสามารถเอาฟังก์ชันที่ใช้โหลดตารางมาใส่ตรงนี้ เพื่อให้มันรีเฟรชหน้าจออัตโนมัติได้ครับ
+      // เช่น fetchOrders() หรือ loadHistory() ครับ
+      
+    } catch (error) {
+      console.error("Error updating tracking:", error);
+      alert("❌ เกิดข้อผิดพลาดในการบันทึกเลขพัสดุ");
+    }
+  };
   const handleEditHistory = (order) => { setOrders([{ id: Date.now(), rawText: order.rawText || '', parsedData: extractOrderData(order.rawText || ''), isSaved: false, crmSuggestion: null }, { id: Date.now() + 1, rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }]); setActiveTab('maker'); window.scrollTo(0, 0); };
   const handleReprintHistory = (order) => { setReprintOrder(order); setTimeout(() => { window.print(); setReprintOrder(null); }, 300); };
   
-// 🔥 ระบบกรองข้อมูลอัจฉริยะ (กรองตามวันที่คลิกกราฟ + คำค้นหา Tracking/วันที่)
+  // 🔥 ระบบกรองข้อมูลอัจฉริยะ (กรองตามวันที่คลิกกราฟ + คำค้นหา Tracking/วันที่)
   // 🔥 ระบบกรองข้อมูลอัจฉริยะระดับ Enterprise (แยกสิทธิ์ Owner ดูได้หมด / Staff-Admin เห็นเฉพาะงานตัวเอง)
   const filteredOrders = historyOrders.filter(order => {
     
@@ -2795,7 +2823,14 @@ if (!user && isAuthView) {
                           {(order.rawText !== '' || orders.length > 1) && <button onClick={() => handleDeleteOrder(order.id)} className="text-rose-400 hover:text-rose-600 text-sm font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">🗑️ ลบ</button>}
                         </div>
                         {order.crmSuggestion && <div className="mb-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl flex justify-between items-center shadow-sm animate-pulse"><div><p className="text-xs text-indigo-600 font-black mb-1">✨ พบประวัติลูกค้า!</p><p className="text-sm font-bold text-slate-800">{order.crmSuggestion.customerName}</p></div><button onClick={() => applyCrmData(order.id, order.crmSuggestion)} className="btn-cute bg-indigo-600 text-white text-xs font-bold py-2 px-4 rounded-lg shadow-md shadow-indigo-500/30">ใช้ข้อมูลนี้</button></div>}
-                        <textarea className={`w-full h-32 p-4 rounded-xl focus:outline-none focus:ring-4 resize-none transition-all shadow-inner ${boxColorClass}`} placeholder="วางที่อยู่ หรือ พิมพ์แค่เบอร์โทรศัพท์..." value={order.rawText} onChange={(e) => handleTextChange(order.id, e.target.value)} onFocus={() => handleFocus(order.id)} />
+                        <textarea 
+                          disabled={order.isSaved} // 🔒 ล็อกห้ามพิมพ์ถ้าเป็นงานพิมพ์ซ้ำ
+                          className={`w-full h-32 p-4 rounded-xl focus:outline-none focus:ring-4 resize-none transition-all shadow-inner ${boxColorClass} ${order.isSaved ? 'opacity-60 cursor-not-allowed bg-slate-100 text-slate-500' : ''}`} 
+                          placeholder="วางที่อยู่ หรือ พิมพ์แค่เบอร์โทรศัพท์..." 
+                          value={order.rawText} 
+                          onChange={(e) => handleTextChange(order.id, e.target.value)} 
+                          onFocus={() => handleFocus(order.id)} 
+                        />
                         {order.parsedData && order.parsedData.warnings.length > 0 && <div className="mt-3 text-sm font-bold text-rose-500 flex flex-col gap-1 bg-rose-50 p-3 rounded-lg border border-rose-100">{order.parsedData.warnings.map((w, i) => <span key={i}>⚠️ {w.replace('⚠️ ', '')}</span>)}</div>}
                       </div>
                       
@@ -2806,10 +2841,34 @@ if (!user && isAuthView) {
                 
                 {/* กล่องขวาในโซนขวา: พรีวิวพิมพ์ */}
                 <div className="flex-1 bg-slate-100/50 rounded-2xl shadow-inner border-2 border-dashed border-slate-300 max-h-[75vh] overflow-y-auto print:max-h-none print:overflow-visible print:bg-white print:border-none print:shadow-none print:m-0 print:p-0 relative print:static">
-                  <div className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-200 p-5 flex justify-between items-center z-10 print:hidden">
-                    <h2 className="text-xl font-black text-gray-800 flex items-center gap-2"><span className="text-blue-500">2.</span> ตรวจสอบและสั่งพิมพ์</h2>
-                    <button onClick={handleSaveAndPrint} className="btn-cute bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/30 flex items-center gap-2">💾 บันทึก & สั่งพิมพ์</button>
+                  
+                  {/* แถบด้านบน: เพิ่ม Dropdown เลือกขนส่ง (อัปเกรด Responsive เนียนกริบ) */}
+                  <div className="sticky top-0 bg-white/90 backdrop-blur-md border-b border-slate-200 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-10 print:hidden">
+                    <h2 className="text-xl font-black text-gray-800 flex items-center gap-2 whitespace-nowrap">
+                      <span className="text-blue-500">2.</span> สั่งพิมพ์
+                    </h2>
+                    
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
+                      {/* 🚚 ตัวเลือกขนส่ง */}
+                      <select 
+                        disabled={orders.length > 0 && orders[0].isSaved} // 🔒 ล็อก Dropdown ถ้ารายการนี้เคยบันทึกแล้ว
+                        className={`w-full sm:w-auto min-w-[220px] max-w-full text-ellipsis overflow-hidden border border-gray-300 font-bold py-2.5 px-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 shadow-sm text-sm ${orders.length > 0 && orders[0].isSaved ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-gray-700'}`}
+                        value={selectedCarrier}
+                        onChange={(e) => setSelectedCarrier(e.target.value)}
+                      >
+                        <option value="THP">📮 ไปรษณีย์ไทย (สร้างเลขให้อัตโนมัติ)</option>
+                        <option value="NONE">📦 ขนส่งอื่น ๆ (เว้นว่างเลขพัสดุไว้เขียนเอง)</option>
+                      </select>
+
+                      <button 
+                        onClick={handleSaveAndPrint} 
+                        className="w-full sm:w-auto flex-shrink-0 btn-cute bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 whitespace-nowrap text-sm"
+                      >
+                        💾 บันทึก & พิมพ์
+                      </button>
+                    </div>
                   </div>
+
                   <div className="p-8 print:p-0 print:m-0">
                     {orders.filter(o => o.parsedData).map((order) => (
                       <div key={order.id} ref={(el) => (labelRefs.current[order.id] = el)} 
@@ -2822,9 +2881,8 @@ if (!user && isAuthView) {
                           <span className="text-gray-500">Admin: {user?.email?.split('@')[0]}</span>
                         </div>
 
-                        {/* Sender Info (Compact) - อัปเกรดจัดแถวขนานรองรับเลขสัญญาขวาบน */}
+                        {/* Sender Info (Compact) */}
                         <div className="mb-2 border-b-2 border-black pb-2 flex justify-between items-start gap-2">
-                          {/* ฝั่งซ้าย: ข้อมูลชื่อและที่อยู่ละเอียดของผู้ส่ง */}
                           <div className="flex-1 min-w-0">
                             <p className="text-[9px] text-gray-500 font-medium leading-none">ผู้ส่ง:</p>
                             <p className="font-black text-sm leading-tight text-slate-900 mt-0.5">{storeProfile.name || "ไม่ระบุชื่อร้าน"}</p>
@@ -2835,8 +2893,6 @@ if (!user && isAuthView) {
                             )}
                           </div>
 
-                          {/* ฝั่งขวา: 📜 กล่องข้อความพิเศษ (ยืดหยุ่นสูง ปรับเปลี่ยนข้อความได้ตามใจชอบ) */}
-                          {/* เงื่อนไขใหม่: ถ้ามีการกรอกข้อความบรรทัดแรกเข้ามา ระบบจะเปิดกล่องนี้ออโต้ครับ */}
                           {storeProfile?.specialLine1 ? (
                             <div className="w-[125px] p-1.5 border border-black rounded-sm text-[8px] font-bold text-slate-800 leading-tight bg-slate-50/50 flex flex-col justify-center flex-shrink-0 text-left">
                               <p className="text-[7.5px] font-black text-blue-700 border-b border-gray-300 pb-0.5 mb-0.5 uppercase tracking-wide truncate">
@@ -2847,10 +2903,10 @@ if (!user && isAuthView) {
                               <p className="truncate">สัญญา: {storeProfile.contractNo || "-"}</p>
                             </div>
                           ) : (
-                            // หากไม่มีการกรอกข้อมูลพิเศษ จะปล่อยโล่งสะอาดตา ไม่แสดงอะไรเลยครับ
                             <div className="w-[125px] h-10 flex-shrink-0"></div>
                           )}
                         </div>
+
                         {/* COD Section (ถ้ามี) */}
                         {order.parsedData.isCOD && (
                           <div className="bg-black text-white text-center py-1.5 mb-2 text-xl font-black tracking-wider rounded-sm border-2 border-black">
@@ -2869,18 +2925,30 @@ if (!user && isAuthView) {
                         {/* Zipcode (Highlight) */}
                         <div className="text-center text-4xl font-black mb-2 tracking-widest text-slate-900">{order.parsedData.zipcode || '00000'}</div>
 
-                        {/* 📦 ส่วนเลขพัสดุและบาร์โค้ด */}
-                        {order.trackingNum && (
-                          <div className="flex flex-col items-center mb-2 pt-1 border-t-2 border-black">
-                            <p className="text-2xl font-black tracking-widest text-black mb-1">{order.trackingNum}</p>
-                            <div className="bg-white p-1">
-                              <QRCodeSVG value={order.trackingNum} size={70} />
+                        {/* 📦 ส่วนเลขพัสดุและบาร์โค้ด (มีเงื่อนไข 2 รูปแบบ) */}
+                        <div className="mb-2 pt-1 border-t-2 border-black">
+                          {order.trackingNum ? (
+                            // รูปแบบที่ 1: มีเลขแทรคกิ้ง (ไปรษณีย์ไทย)
+                            <div className="flex flex-col items-center">
+                              <p className="text-2xl font-black tracking-widest text-black mb-1">{order.trackingNum}</p>
+                              <div className="bg-white p-1">
+                                <QRCodeSVG value={order.trackingNum} size={70} />
+                              </div>
+                              <p className="text-[8px] mt-0.5 font-bold text-gray-500 uppercase">{order.carrier === 'Thailand Post' ? 'Thailand Post Tracking' : 'Tracking Number'}</p>
                             </div>
-                            <p className="text-[8px] mt-0.5 font-bold text-gray-500 uppercase">Thailand Post Tracking</p>
-                          </div>
-                        )}
+                          ) : (
+                            // รูปแบบที่ 2: ไม่มีเลข (เว้นว่างไว้เขียนเอง/แปะบาร์โค้ด)
+                            <div className="flex flex-col items-center justify-center min-h-[110px] w-full p-2">
+                              <div className="border-2 border-dashed border-gray-300 rounded-lg w-full h-24 flex items-center justify-center bg-gray-50/50">
+                                <p className="text-gray-400 font-bold text-[10px] uppercase tracking-widest text-center">
+                                  แปะบาร์โค้ดขนส่ง<br/>หรือเขียนเลขพัสดุที่นี่
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
 
-                        {/* 📋 ส่วนรายการสินค้า และพื้นที่สำหรับข้อความพิเศษ 3 บรรทัด (ไม่ตีกรอบ จัดระเบียบด้วย Flex) */}
+                        {/* 📋 ส่วนรายการสินค้า */}
                         <div className="border-t-2 border-black pt-2 flex justify-between items-start gap-2">
                           <div className="flex-1 min-w-0">
                             <p className="text-[10px] font-black text-slate-700 mb-0.5">รายการสินค้า:</p>
@@ -2893,7 +2961,7 @@ if (!user && isAuthView) {
                             )}
                           </div>
                           
-                          {/* 🆔 แสดงเลข REF แบบตัวอักษรประจำตระกูล */}
+                          {/* 🆔 แสดงเลข REF */}
                           <div className="text-right ml-2 border-l border-gray-300 pl-2 flex-shrink-0">
                             <p className="text-[8px] font-mono uppercase font-black text-slate-400 leading-none">REF NO.</p>
                             <p className="text-[11px] font-mono font-black text-slate-800 leading-none mt-1">#{String(order.id).slice(-6)}</p>
@@ -3032,34 +3100,50 @@ if (!user && isAuthView) {
                             
                             {/* 📦 โซนกรอกเลขพัสดุและส่งแชทสายฟ้าแลบ (ฉบับเสถียร 100%) */}
                             <td className="py-4 px-6">
-                              <div className="flex gap-2 items-center justify-center">
-                                <input 
-                                  type="text" 
-                                  placeholder="เช่น OA123456789TH" 
-                                  className="border border-slate-200 p-2 rounded-lg text-xs w-36 focus:ring-2 focus:ring-blue-300 outline-none uppercase font-mono"
-                                  value={trackingInputs[order.id] !== undefined ? trackingInputs[order.id] : (order.trackingNum || '')}
-                                  onChange={(e) => setTrackingInputs({...trackingInputs, [order.id]: e.target.value.toUpperCase()})}
-                                />
-                                
-                                {/* ⚡ ตรวจสอบตัวแปรพิมพ์ใหญ่พิมพ์เล็ก (pageId / senderId) ให้ตรงกับ Firestore */}
-                                {order.pageId && order.senderId ? (
+                              {order.trackingNum ? (
+                                // 🟢 กรณีที่ 1: มีเลขพัสดุแล้ว (ดึงจากระบบ หรือ แอดมินเซฟไปแล้ว) -> แสดงเลข + ปุ่มส่งแชท
+                                <div className="flex gap-2 items-center justify-center">
+                                  <div className="font-mono font-bold text-slate-700 text-sm bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg w-36 text-center select-all">
+                                    {order.trackingNum}
+                                  </div>
+                                  
+                                  {order.pageId && order.senderId ? (
+                                    <button 
+                                      onClick={() => handleCopyTrackingMessage(order)}
+                                      className="bg-blue-600 text-white p-2 rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center justify-center gap-1 w-[80px]"
+                                      title="ส่งเลขพัสดุเข้า Facebook Messenger ลูกค้าโดยตรง"
+                                    >
+                                      ⚡ ส่งเข้าแชท
+                                    </button>
+                                  ) : (
+                                    <button 
+                                      onClick={() => handleCopyTrackingMessage(order)}
+                                      className="bg-emerald-500 text-white p-2 rounded-lg text-xs font-bold hover:bg-emerald-600 transition-colors shadow-sm flex items-center justify-center gap-1 w-[80px]"
+                                      title="คัดลอกข้อความเพื่อไปวางในแชทด้วยตัวเอง"
+                                    >
+                                      📋 ก๊อปปี้
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                // 🟡 กรณีที่ 2: ยังไม่มีเลข (เว้นว่างไว้) -> ให้แอดมินพิมพ์กรอกเอง + ปุ่มกดเซฟเลข
+                                <div className="flex gap-2 items-center justify-center">
+                                  <input 
+                                    type="text" 
+                                    placeholder="เช่น J&T, Flash..." 
+                                    className="border border-orange-300 bg-orange-50 p-2 rounded-lg text-xs w-36 focus:ring-2 focus:ring-orange-400 outline-none uppercase font-mono text-slate-800"
+                                    value={trackingInputs[order.id] || ''}
+                                    onChange={(e) => setTrackingInputs({...trackingInputs, [order.id]: e.target.value.toUpperCase()})}
+                                  />
                                   <button 
-                                    onClick={() => handleCopyTrackingMessage(order)}
-                                    className="bg-blue-600 text-white p-2 rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center justify-center gap-1"
-                                    title="ส่งเลขพัสดุเข้า Facebook Messenger ลูกค้าโดยตรง"
+                                    onClick={() => handleUpdateManualTracking(order.id, trackingInputs[order.id])}
+                                    className="bg-orange-500 text-white p-2 rounded-lg text-xs font-bold hover:bg-orange-600 transition-colors shadow-sm flex items-center justify-center gap-1 w-[80px]"
+                                    title="บันทึกเลขพัสดุลงในระบบ"
                                   >
-                                    ⚡ ส่งเข้าแชท
+                                    💾 เซฟเลข
                                   </button>
-                                ) : (
-                                  <button 
-                                    onClick={() => handleCopyTrackingMessage(order)}
-                                    className="bg-emerald-500 text-white p-2 rounded-lg text-xs font-bold hover:bg-emerald-600 transition-colors shadow-sm flex items-center justify-center gap-1"
-                                    title="คัดลอกข้อความเพื่อไปวางในแชทด้วยตัวเอง"
-                                  >
-                                    📋 ก๊อปปี้
-                                  </button>
-                                )}
-                              </div>
+                                </div>
+                              )}
                             </td>
 
                             {/* 🖨️ โซนปุ่มพิมพ์ซ้ำ (แยกทางไม่ทับเส้นกัน หน้าต่างพรีวิวจะไม่หายแว๊บ) */}
