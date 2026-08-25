@@ -105,6 +105,19 @@ const extractOrderData = (rawText) => {
 const COLORS = ['#22c55e', '#f97316'];
 
 export default function App() {
+  // 🟢 วาง State เครื่องพิมพ์ไว้ตรงนี้ (ใต้บรรทัดเปิด function App)
+  const [bluetoothDevice, setBluetoothDevice] = useState(null);
+  const [printerCharacteristic, setPrinterCharacteristic] = useState(null);
+  const [usbDevice, setUsbDevice] = useState(null);
+  const [usbEndpoint, setUsbEndpoint] = useState(null);
+  const [showPrinterSettings, setShowPrinterSettings] = useState(true);
+
+  useEffect(() => {
+    if (bluetoothDevice || usbDevice) {
+      setShowPrinterSettings(false);
+    }
+  }, [bluetoothDevice, usbDevice]);
+  
   const userPlan = 'premium';
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(''); 
@@ -1209,90 +1222,378 @@ SmartLabel ยินดีให้บริการครับ ✅
     }
   };
     
-  const handleSaveAndPrint = async () => {
-      // 🔍 กรองเฉพาะออเดอร์ "ใหม่" ที่ยังไม่เคยเซฟ (isSaved เป็น false) และมีที่อยู่จัดส่ง
-      const newOrdersToSave = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
+  // 📶 ฟังก์ชันเชื่อมต่อเครื่องพิมพ์บลูทูธ (รองรับเครื่องพิมพ์ความร้อนทุกรุ่น)
+  const connectBluetoothPrinter = async () => {
+    try {
+      if (!navigator.bluetooth) {
+        alert("เบราว์เซอร์นี้ไม่รองรับ Web Bluetooth");
+        return;
+      }
+      const device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [
+          '000018f0-0000-1000-8000-00805f9b34fb', 
+          '0000ffe0-0000-1000-8000-00805f9b34fb',
+          '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+          'e7810a71-73ae-499d-8c15-faa9aef0c3f2'
+        ]
+      });
+
+      const server = await device.gatt.connect();
       
-      // ... ส่วนเช็คโควต้าของท่าน CEO ปล่อยไว้คงเดิมได้เลยครับ ...
+      // ค้นหา Service และ Characteristic แบบอัตโนมัติจากอุปกรณ์ที่เชื่อมต่อ
+      const services = await server.getPrimaryServices();
+      let targetCharacteristic = null;
 
+      for (const service of services) {
+        const characteristics = await service.getCharacteristics();
+        for (const char of characteristics) {
+          if (char.properties.write || char.properties.writeWithoutResponse) {
+            targetCharacteristic = char;
+            break;
+          }
+        }
+        if (targetCharacteristic) break;
+      }
+
+      if (!targetCharacteristic) {
+        throw new Error("ไม่พบช่องทางส่งข้อมูล (Characteristic) ที่รองรับการพิมพ์บนเครื่องพิมพ์นี้");
+      }
+
+      setBluetoothDevice(device);
+      setPrinterCharacteristic(targetCharacteristic);
+      alert(`✅ เชื่อมต่อบลูทูธ ${device.name || 'Printer'} สำเร็จ!`);
+    } catch (error) {
+      console.error("Bluetooth Connection Error:", error);
+      alert("ไม่สามารถเชื่อมต่อบลูทูธได้ หรือผู้ใช้ยกเลิกการเชื่อมต่อ");
+    }
+  };
+
+  // 🔌 ฟังก์ชันเชื่อมต่อเครื่องพิมพ์ USB (Web USB)
+  const connectUsbPrinter = async () => {
+    try {
+      if (!navigator.usb) {
+        alert("เบราว์เซอร์นี้ไม่รองรับ Web USB");
+        return;
+      }
+      const device = await navigator.usb.requestDevice({ filters: [] });
+      await device.open();
+      if (device.configuration === null) await device.selectConfiguration(1);
+      await device.claimInterface(0);
+
+      const endpoint = device.configurations[0].interfaces[0].alternate.endpoints.find(e => e.direction === 'out');
+      
+      setUsbDevice(device);
+      setUsbEndpoint(endpoint);
+      alert(`✅ เชื่อมต่อ USB ${device.productName || 'Printer'} สำเร็จ!`);
+    } catch (error) {
+      console.error("USB Connection Error:", error);
+      alert("ไม่สามารถเชื่อมต่อ USB ได้ หรือไม่ได้เลือกอุปกรณ์");
+    }
+  };
+
+  // 🚀 ฟังก์ชันส่งข้อมูลดิบ (Byte Array) ไปยังเครื่องพิมพ์
+  const sendDataToPrinter = async (data) => {
+    if (bluetoothDevice && printerCharacteristic) {
+      const CHUNK_SIZE = 100; // ส่งทีละ 100 bytes ป้องกันบลูทูธล่ม
+      for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+        const chunk = data.slice(i, i + CHUNK_SIZE);
+        if (printerCharacteristic.properties.writeWithoutResponse) {
+          await printerCharacteristic.writeValueWithoutResponse(chunk);
+        } else {
+          await printerCharacteristic.writeValue(chunk);
+        }
+      }
+    } else if (usbDevice && usbEndpoint) {
+      await usbDevice.transferOut(usbEndpoint.endpointNumber, data);
+    } else {
+      throw new Error("ไม่มีเครื่องพิมพ์ Bluetooth หรือ USB เชื่อมต่ออยู่");
+    }
+  };
+
+  // ==========================================
+  // 💾 🖨️ ฟังก์ชันบันทึกและสั่งพิมพ์ (ฉบับสมบูรณ์ รองรับ Bluetooth/USB และ Windows)
+  // ==========================================
+  const handleSaveAndPrint = async () => {
+    // 1. แยกออเดอร์ใหม่ที่ยังไม่เคยเซฟ
+    const newOrdersToSave = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
+    let processedOrders = [...orders]; // ตัวแปรเก็บออเดอร์พร้อมพิมพ์ (ทั้งใหม่และเก่าผสมกัน)
+
+    try {
+      // 🟢 ภาคที่ 1: บันทึกข้อมูล ดึงเลขพัสดุ และตัดโควต้า (สำหรับออเดอร์ใหม่)
       if (newOrdersToSave.length > 0) {
-        try {
-          // ดึง Token ไปรษณีย์เผื่อไว้ (เฉพาะกรณีเลือกขนส่งไปรษณีย์ไทย)
-          const thpToken = selectedCarrier === 'THP' ? await getTHPToken() : null;
-          const processedOrders = [];
+        const thpToken = selectedCarrier === 'THP' ? await getTHPToken() : null;
+        processedOrders = []; // ล้างค่าเพื่อจัดเรียงใหม่พร้อมเลขพัสดุ
 
-          for (const order of orders) {
-            // 🎯 ดำเนินการเฉพาะงานใหม่ที่ยังไม่มีการบันทึก และมีข้อมูลจัดส่ง
-            if (order.parsedData && !order.isSaved && !order.trackingNum) {
-              
-              let autoTracking = "";
+        for (const order of orders) {
+          if (order.parsedData && !order.isSaved && !order.trackingNum) {
+            let autoTracking = "";
 
-              // 🚚 เช็คเงื่อนไข: ถ้าเลือกระบบ "ไปรษณีย์ไทย" ถึงจะวิ่งไปขอเลข
-              if (selectedCarrier === 'THP') {
-                autoTracking = await getBarcodeFromPool();
-                if (!autoTracking) {
-                  console.log("⚠️ เลขพัสดุในคลังหมด! ระบบสลับไปใช้ API/สุ่มเลขสำรองอัตโนมัติ");
-                  autoTracking = await fetchRealTrackingFromTHP('1'); 
-                }
-                if (thpToken && autoTracking) {
-                  await preloadOrderToTHP(thpToken, order, autoTracking);
-                }
+            // 🚚 ดึงเลขพัสดุไปรษณีย์ไทย
+            if (selectedCarrier === 'THP') {
+              autoTracking = await getBarcodeFromPool();
+              if (!autoTracking) {
+                console.log("⚠️ เลขพัสดุในคลังหมด! ระบบสลับไปใช้ API/สุ่มเลขสำรองอัตโนมัติ");
+                autoTracking = await fetchRealTrackingFromTHP('1'); 
               }
-
-              // ⚡ จัดระเบียบข้อมูล Payload ให้ Flat (แบนราบ)
-              const orderPayload = {
-                customerName: order.parsedData.customerName || "ไม่ระบุชื่อ",
-                phone: order.parsedData.phone || "ไม่ระบุเบอร์",
-                address: order.parsedData.address || "ไม่ระบุที่อยู่",
-                zipcode: order.parsedData.zipcode || "",
-                items: order.parsedData.items || [],
-                isCOD: order.parsedData.isCOD || false,
-                codAmount: Number(order.parsedData.codAmount) || 0,
-                rawText: order.rawText || "",
-                
-                // 📦 ข้อมูลสถานะ, เลขแทรคกิ้ง และชื่อขนส่ง
-                trackingNum: autoTracking || "",
-                carrier: selectedCarrier === 'THP' ? 'Thailand Post' : 'Other', // เก็บชื่อขนส่งลง DB ด้วย
-                status: '📦 เตรียมการส่ง',
-                
-                ownerId: userOwnerId || "",                            
-                pageId: order.pageId || order.parsedData.pageId || "",    
-                senderId: order.senderId || order.parsedData.senderId || "", 
-                creatorName: tempProfile.name || user?.email?.split('@')[0] || "Owner", 
-                adminEmail: user?.email || "-",
-                createdAt: serverTimestamp()
-              };
-
-              // 💾 บันทึกลงฐานข้อมูลแฟ้ม orders
-              await addDoc(collection(db, "orders"), orderPayload);
-
-              processedOrders.push({ ...order, trackingNum: autoTracking, isSaved: true });
-            } else {
-              // 🔄 งานพิมพ์ซ้ำ (isSaved: true) ให้เก็บไว้พิมพ์อย่างเดียว
-              processedOrders.push(order);
+              if (thpToken && autoTracking) {
+                await preloadOrderToTHP(thpToken, order, autoTracking);
+              }
             }
-          }
-          setOrders(processedOrders);
 
-          // 💰 ตัดเครดิตเฉพาะจำนวนงานใหม่
-          if (userRole === 'Owner') {
-            const userRef = doc(db, "users", user.uid);
-            await updateDoc(userRef, { 
-              quota: increment(-newOrdersToSave.length), 
-              usedQuota: increment(newOrdersToSave.length) 
-            });
+            // ⚡ จัดระเบียบข้อมูล Payload
+            const orderPayload = {
+              customerName: order.parsedData.customerName || "ไม่ระบุชื่อ",
+              phone: order.parsedData.phone || "ไม่ระบุเบอร์",
+              address: order.parsedData.address || "ไม่ระบุที่อยู่",
+              zipcode: order.parsedData.zipcode || "",
+              items: order.parsedData.items || [],
+              isCOD: order.parsedData.isCOD || false,
+              codAmount: Number(order.parsedData.codAmount) || 0,
+              rawText: order.rawText || "",
+              trackingNum: autoTracking || "",
+              carrier: selectedCarrier === 'THP' ? 'Thailand Post' : 'Other',
+              status: '📦 เตรียมการส่ง',
+              ownerId: userOwnerId || "",                            
+              pageId: order.pageId || order.parsedData.pageId || "",    
+              senderId: order.senderId || order.parsedData.senderId || "", 
+              creatorName: tempProfile.name || user?.email?.split('@')[0] || "Owner", 
+              adminEmail: user?.email || "-",
+              createdAt: serverTimestamp()
+            };
+
+            // 💾 บันทึกลงฐานข้อมูล Firestore
+            await addDoc(collection(db, "orders"), orderPayload);
+
+            // เก็บใส่ตะกร้าออเดอร์ที่พร้อมพิมพ์
+            processedOrders.push({ ...order, trackingNum: autoTracking, isSaved: true });
+          } else {
+            // งานพิมพ์ซ้ำ (ที่เคยเซฟแล้ว) จับใส่ตะกร้าได้เลย
+            processedOrders.push(order);
           }
-        } catch (error) { 
-          console.error("❌ บันทึกใบปะหน้าขัดข้อง:", error); 
+        }
+        
+        // อัปเดตหน้าจอให้แสดงเลขพัสดุ
+        setOrders(processedOrders);
+
+        // 💰 ตัดเครดิตเฉพาะจำนวนงานใหม่
+        if (userRole === 'Owner') {
+          const userRef = doc(db, "users", user.uid);
+          await updateDoc(userRef, { 
+            quota: increment(-newOrdersToSave.length), 
+            usedQuota: increment(newOrdersToSave.length) 
+          });
         }
       }
 
-      // 🖨️ สั่งพิมพ์ใบความร้อน
-      setTimeout(() => {
-        window.print();
-        setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
-      }, 1000);
-    };
+      // 🟢 ภาคที่ 2: ดำเนินการสั่งพิมพ์ (เลือกระหว่าง Bluetooth หรือ Browser)
+      const ordersToPrint = processedOrders.filter(o => o.parsedData);
+      if (ordersToPrint.length === 0) return;
+
+      if (bluetoothDevice || usbDevice) {
+        // -----------------------------------------------------
+        // 🖨️ โหมดที่ 1: พิมพ์ผ่าน Bluetooth / USB (Direct Print)
+        // -----------------------------------------------------
+        try {
+          console.log("กำลังพิมพ์ผ่าน Direct Print (Bluetooth/USB)...");
+          
+          for (const order of ordersToPrint) {
+            // 💡 ปรับความกว้างเป็น 384px (สำหรับเครื่องพิมพ์ 58mm) หรือ 576px (สำหรับ 80mm)
+            const printerWidth = 384; 
+            const canvas = document.createElement('canvas');
+            canvas.width = printerWidth; 
+            const estimatedHeight = 700 + (order.parsedData.items.length * 25);
+            canvas.height = estimatedHeight;
+            const ctx = canvas.getContext('2d');
+
+            // เทพื้นสีขาว
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#000000';
+            
+            let y = 35;
+            
+            // --- Header ---
+            ctx.font = 'bold 20px sans-serif';
+            ctx.fillText(`SmartLabel ✅`, 10, y); 
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText(`Admin: ${user?.email?.split('@')[0] || '-'}`, canvas.width - 10, y);
+            ctx.textAlign = 'left';
+            y += 20;
+            
+            ctx.fillRect(10, y, canvas.width - 20, 2); y += 22;
+
+            // --- ผู้ส่ง ---
+            ctx.font = '14px sans-serif';
+            ctx.fillText(`ผู้ส่ง:`, 10, y);
+            ctx.font = 'bold 16px sans-serif';
+            ctx.fillText(`${storeProfile.name || '-'}`, 45, y); y += 22;
+            
+            // --- COD ---
+            if (order.parsedData.isCOD) {
+              ctx.fillStyle = '#000000';
+              ctx.fillRect(10, y, canvas.width - 20, 40);
+              ctx.fillStyle = '#FFFFFF';
+              ctx.font = 'bold 24px sans-serif';
+              ctx.textAlign = 'center';
+              ctx.fillText(`COD: ${order.parsedData.codAmount} THB`, canvas.width / 2, y + 28);
+              ctx.fillStyle = '#000000';
+              ctx.textAlign = 'left';
+              y += 55;
+            } else {
+               y += 10;
+            }
+
+            // --- ผู้รับ ---
+            ctx.font = 'bold 16px sans-serif'; 
+            ctx.fillText(`ผู้รับ:`, 10, y); y += 25;
+            ctx.font = 'bold 26px sans-serif'; // ขยายชื่อลูกค้าให้เด่นขึ้น
+            ctx.fillText(`${order.parsedData.customerName}`, 10, y); y += 28;
+            ctx.font = 'bold 22px sans-serif'; // ขยายเบอร์โทร
+            ctx.fillText(`☎ ${order.parsedData.phone}`, 10, y); y += 30;
+            
+            // ⭐️ ที่อยู่ (ขยายขนาดฟอนต์เป็น 20px ตัวหนา เพื่อให้อ่านง่ายบนสติกเกอร์)
+            ctx.font = 'bold 20px sans-serif'; 
+            const words = order.parsedData.address.split(' ');
+            let line = '';
+            for(let n = 0; n < words.length; n++) {
+              const testLine = line + words[n] + ' ';
+              const metrics = ctx.measureText(testLine);
+              // ตัดบรรทัดเมื่อข้อความยาวเกินหน้ากระดาษ
+              if (metrics.width > canvas.width - 20 && n > 0) {
+                ctx.fillText(line, 10, y);
+                line = words[n] + ' ';
+                y += 28; // ⭐️ ขยับระยะห่างบรรทัดให้พอดีกับฟอนต์ที่ใหญ่ขึ้น
+              } else {
+                line = testLine;
+              }
+            }
+            ctx.fillText(line, 10, y); y += 40; // ดันระยะห่างก่อนถึงรหัสไปรษณีย์
+
+            // --- รหัสไปรษณีย์ (ตัวใหญ่สะใจ) ---
+            ctx.font = 'bold 42px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(order.parsedData.zipcode || '00000', canvas.width / 2, y);
+            y += 35;
+
+            ctx.fillRect(10, y, canvas.width - 20, 2); y += 25;
+
+            // --- เลขพัสดุ & QR Code ---
+            if (order.trackingNum) {
+                ctx.font = 'bold 26px sans-serif';
+                ctx.fillText(order.trackingNum, canvas.width / 2, y);
+                y += 20;
+
+                // 📌 ดึงภาพ QR Code และวาดลง Canvas (ต้องใส่ await เพื่อรอให้ภาพโหลดเสร็จ)
+                try {
+                    const qrSize = 130; // 📏 กำหนดขนาด QR Code (ปรับขยายได้ตามต้องการ)
+                    // ใช้ API กลางสร้าง QR Code ชั่วคราวเพื่อนำมาแปะลง Canvas
+                    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${qrSize}x${qrSize}&data=${encodeURIComponent(order.trackingNum)}`;
+                    
+                    const qrImage = new Image();
+                    qrImage.crossOrigin = "Anonymous"; // ป้องกันปัญหาลิขสิทธิ์ภาพข้ามโดเมน (Tainted Canvas)
+                    qrImage.src = qrImageUrl;
+                    
+                    // รอให้รูปโหลดเข้ามาในระบบให้เสร็จก่อน
+                    await new Promise((resolve, reject) => {
+                        qrImage.onload = resolve;
+                        qrImage.onerror = reject;
+                    });
+
+                    // วาดรูปลงตรงกลางกระดาษ
+                    ctx.drawImage(qrImage, (canvas.width - qrSize) / 2, y, qrSize, qrSize);
+                    y += qrSize + 20; // ดันบรรทัดถัดไปลงมา
+                } catch (err) {
+                    console.warn("ไม่สามารถโหลดภาพ QR Code ได้:", err);
+                    // หากเน็ตสะดุดโหลด QR ไม่ได้ ก็ให้ข้ามไปพิมพ์ข้อความด้านล่างต่อเลย
+                }
+
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillText('THAILAND POST TRACKING (SCAN QR)', canvas.width / 2, y);
+                y += 25;
+            }
+
+            ctx.fillRect(10, y, canvas.width - 20, 2); y += 20;
+
+            // --- รายการสินค้า & REF ---
+            ctx.textAlign = 'left';
+            ctx.font = 'bold 13px sans-serif';
+            ctx.fillText('รายการสินค้า:', 10, y); 
+            
+            ctx.textAlign = 'right';
+            ctx.font = 'bold 10px sans-serif';
+            ctx.fillText(`REF: #${String(order.id).slice(-6)}`, canvas.width - 10, y);
+            ctx.textAlign = 'left';
+            y += 20;
+
+            ctx.font = '13px sans-serif';
+            if(order.parsedData.items && order.parsedData.items.length > 0) {
+                order.parsedData.items.forEach(item => {
+                     ctx.fillText(`- ${item}`, 10, y); y += 20;
+                });
+            } else {
+                ctx.fillText(`- ไม่ระบุรายการ -`, 10, y); y += 20;
+            }
+
+            // ครอป Canvas ให้พอดีเนื้อหาจริง
+            const finalCanvas = document.createElement('canvas');
+            finalCanvas.width = canvas.width;
+            finalCanvas.height = y + 15;
+            const finalCtx = finalCanvas.getContext('2d');
+            finalCtx.drawImage(canvas, 0, 0);
+
+            // แปลงภาพเป็น ESC/POS Byte Data ยิงเข้าเครื่องพิมพ์
+            const imgData = finalCtx.getImageData(0, 0, finalCanvas.width, finalCanvas.height).data;
+            const widthBytes = Math.ceil(finalCanvas.width / 8);
+            const printData = [0x1B, 0x40, 0x1B, 0x61, 0x01, 0x1D, 0x76, 0x30, 0x00, widthBytes, 0, finalCanvas.height & 0xFF, (finalCanvas.height >> 8) & 0xFF];
+
+            for (let py = 0; py < finalCanvas.height; py++) {
+              for (let px = 0; px < widthBytes; px++) {
+                let byte = 0;
+                for (let bit = 0; bit < 8; bit++) {
+                  const pixelX = px * 8 + bit;
+                  if (pixelX < finalCanvas.width && imgData[(py * finalCanvas.width + pixelX) * 4] < 128) {
+                    byte |= (1 << (7 - bit));
+                  }
+                }
+                printData.push(byte);
+              }
+            }
+            printData.push(0x0A, 0x0A, 0x0A);
+
+            await sendDataToPrinter(new Uint8Array(printData));
+            await new Promise(resolve => setTimeout(resolve, 800));
+          }
+
+          // พิมพ์เสร็จเคลียร์หน้าจอเตรียมกล่องใหม่
+          setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
+          
+        } catch (err) {
+          console.error("Direct Print Error:", err);
+          alert("เกิดข้อผิดพลาดในการพิมพ์ผ่านบลูทูธ ระบบจะสลับไปใช้การพิมพ์ผ่านหน้าต่างเบราว์เซอร์ปกติครับ");
+          // ระบบฉุกเฉิน (Fallback): ถ้าบลูทูธหลุด จะสลับไปเปิดหน้าต่างพิมพ์ Windows ให้เลย
+          setTimeout(() => {
+            window.print();
+            setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
+          }, 1000);
+        }
+
+      } else {
+        // -----------------------------------------------------
+        // 🖨️ โหมดที่ 2: พิมพ์ผ่าน Browser (Windows / สาย USB เสียบคอมปกติ)
+        // -----------------------------------------------------
+        setTimeout(() => {
+          window.print();
+          setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
+        }, 1000);
+      }
+
+    } catch (error) { 
+      console.error("❌ บันทึกใบปะหน้าขัดข้อง:", error); 
+      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง");
+    }
+  };
 
   // 🖨️ ฟังก์ชันพิมพ์ซ้ำ (Reprint) - ล็อกการแก้ไข 100%
   const handleReprint = (oldOrder) => {
@@ -2842,6 +3143,63 @@ if (!user && isAuthView) {
                 {/* กล่องขวาในโซนขวา: พรีวิวพิมพ์ */}
                 <div className="flex-1 bg-slate-100/50 rounded-2xl shadow-inner border-2 border-dashed border-slate-300 max-h-[75vh] overflow-y-auto print:max-h-none print:overflow-visible print:bg-white print:border-none print:shadow-none print:m-0 print:p-0 relative print:static">
                   
+                  {/* ========================================== */}
+                  {/* ⭐️ กล่องตั้งค่าเครื่องพิมพ์แบบ ย่อ/ขยายได้ (Accordion) */}
+                  {/* ========================================== */}
+                  <div className="mb-6 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden transition-all duration-300 print:hidden">
+                    <div 
+                      onClick={() => setShowPrinterSettings(!showPrinterSettings)}
+                      className="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
+                    >
+                      <div>
+                        <p className="font-bold text-gray-800 flex items-center gap-2">
+                          <span className="text-xl">🖨️</span> เครื่องพิมพ์สติกเกอร์ (บลูทูธ / USB / มือถือ)
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                          สถานะ: 
+                          {bluetoothDevice ? <span className="text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded">✅ Bluetooth ({bluetoothDevice.name})</span> : 
+                          usbDevice ? <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded">✅ USB ({usbDevice.productName || 'Printer'})</span> : 
+                          <span className="text-gray-500 font-bold bg-gray-100 px-2 py-0.5 rounded">ยังไม่เชื่อมต่อ (พิมพ์ผ่านระบบปกติ Windows)</span>}
+                        </p>
+                      </div>
+                      <div className={`text-gray-400 bg-gray-100 w-8 h-8 rounded-full flex items-center justify-center font-bold transition-transform duration-300 ${showPrinterSettings ? 'rotate-180' : ''}`}>
+                        ▼
+                      </div>
+                    </div>
+
+                    {showPrinterSettings && (
+                      <div className="p-4 border-t border-gray-100 bg-gray-50 flex flex-col md:flex-row gap-2 animate-fade-in-up">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); connectBluetoothPrinter(); }}
+                          className={`flex-1 px-4 py-2.5 font-bold rounded-xl text-sm transition-all shadow-sm ${bluetoothDevice ? 'bg-blue-100 text-blue-700 border border-blue-300' : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-md'}`}
+                        >
+                          📶 ค้นหาและเชื่อมต่อบลูทูธ
+                        </button>
+                        
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); connectUsbPrinter(); }}
+                          className={`flex-1 px-4 py-2.5 font-bold rounded-xl text-sm transition-all shadow-sm ${usbDevice ? 'bg-emerald-100 text-emerald-700 border border-emerald-300' : 'bg-emerald-500 text-white hover:bg-emerald-600 hover:shadow-md'}`}
+                        >
+                          🔌 เชื่อมต่อสาย USB
+                        </button>
+
+                        {(bluetoothDevice || usbDevice) && (
+                          <button 
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              if(bluetoothDevice && bluetoothDevice.gatt.connected) bluetoothDevice.gatt.disconnect();
+                              setBluetoothDevice(null); setPrinterCharacteristic(null); 
+                              setUsbDevice(null); setUsbEndpoint(null); 
+                            }}
+                            className="px-4 py-2.5 bg-red-100 text-red-600 hover:bg-red-200 font-bold rounded-xl text-sm transition-all shadow-sm"
+                          >
+                            ✖ ยกเลิกการเชื่อมต่อ
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* แถบด้านบน: เพิ่ม Dropdown เลือกขนส่ง (อัปเกรด Responsive เนียนกริบ) */}
                   <div className="sticky top-0 bg-white/90 backdrop-blur-md border-b border-slate-200 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-10 print:hidden">
                     <h2 className="text-xl font-black text-gray-800 flex items-center gap-2 whitespace-nowrap">
