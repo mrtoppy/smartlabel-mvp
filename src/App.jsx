@@ -2918,36 +2918,41 @@ if (!user && isAuthView) {
         
         {/* 🔥 โซนที่ 1: แถบแสดงโควต้า ให้ Owner และ Admin เห็น */}
         {['Owner', 'Admin'].includes(userRole) && (
-          <div className="flex justify-between items-center bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl border border-blue-100 shadow-inner">
-            <div className="font-black text-indigo-700 bg-white px-5 py-2.5 rounded-xl shadow-sm flex items-center gap-3 border border-indigo-50">
-              🎫 โควต้าคงเหลือ: 
-              <span className={`text-xl ${quota <= 5 ? 'text-rose-500 animate-pulse' : 'text-indigo-900'}`}>
-                {quota} <span className="text-sm font-bold text-indigo-400">ใบ</span>
-              </span>
-              <button onClick={() => setIsTopupOpen(true)} className="btn-cute ml-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-1.5 rounded-lg text-xs shadow-md shadow-indigo-500/30">
+          <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl border border-blue-100 shadow-inner gap-4">
+            
+            {/* กล่องโควต้า (ปรับให้ขยายเต็มจอบนมือถือ) */}
+            <div className="font-black text-indigo-700 bg-white px-4 md:px-5 py-2.5 rounded-xl shadow-sm flex items-center justify-between md:justify-start gap-3 border border-indigo-50 w-full md:w-auto">
+              <div className="flex items-center gap-2 whitespace-nowrap">
+                <span>🎫</span> 
+                <span className="hidden sm:inline">โควต้าคงเหลือ:</span>
+                <span className={`text-lg md:text-xl ${quota <= 5 ? 'text-rose-500 animate-pulse' : 'text-indigo-900'}`}>
+                  {quota} <span className="text-xs md:text-sm font-bold text-indigo-400">ใบ</span>
+                </span>
+              </div>
+              <button onClick={() => setIsTopupOpen(true)} className="btn-cute ml-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-1.5 rounded-lg text-xs shadow-md shadow-indigo-500/30 whitespace-nowrap flex-shrink-0">
                 ➕ เติมโควต้า
               </button>
             </div>
             
             {/* 🛑 โซนที่ 2: ปุ่มจัดการระบบของเถ้าแก่ (Owner) */}
             {userRole === 'Owner' && (
-              <div className="flex items-center gap-2">
-                {/* 📖 🆕 ปุ่มเรียกดูคู่มือการใช้งาน (เพิ่มเข้ามาใหม่เรียงข้างกันอย่างสวยงาม) */}
+              <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+                {/* 📖 ปุ่มเรียกดูคู่มือการใช้งาน (ใช้ flex-1 บนมือถือให้ปุ่มกว้างเท่ากัน) */}
                 <button
                   onClick={handleOpenTutorial}
-                  className="btn-cute bg-white border border-slate-200 text-indigo-600 hover:text-indigo-700 px-4 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+                  className="btn-cute flex-1 md:flex-none justify-center bg-white border border-slate-200 text-indigo-600 hover:text-indigo-700 px-3 md:px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm shadow-sm hover:bg-slate-50 transition-colors flex items-center gap-1.5 whitespace-nowrap"
                   title="เปิดดูคู่มือแนะนำการใช้งานระบบ"
                 >
                   <span>📖</span> คู่มือระบบ
                 </button>
 
-                {/* ⚙️ ปุ่มตั้งค่าร้านตัวเดิมของท่าน CEO */}
+                {/* ⚙️ ปุ่มตั้งค่าร้าน */}
                 <button 
                   onClick={() => {
                     setTempProfile(storeProfile);
                     setIsSettingsOpen(true);
                   }} 
-                  className="btn-cute bg-white border border-slate-200 text-slate-700 px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-colors"
+                  className="btn-cute flex-1 md:flex-none justify-center bg-white border border-slate-200 text-slate-700 px-3 md:px-5 py-2.5 rounded-xl font-bold text-xs md:text-sm shadow-sm hover:bg-slate-50 transition-colors whitespace-nowrap"
                 >
                   ⚙️ ตั้งค่าร้าน
                 </button>
