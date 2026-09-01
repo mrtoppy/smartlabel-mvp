@@ -1402,7 +1402,8 @@ SmartLabel ยินดีให้บริการครับ ✅
             const printerWidth = 384; 
             const canvas = document.createElement('canvas');
             canvas.width = printerWidth; 
-            const estimatedHeight = 700 + (order.parsedData.items.length * 25);
+            // ⭐️ ปรับตัวเลขตรงนี้เผื่อความสูงกระดาษให้มากขึ้น ป้องกันเนื้อหาล้น
+            const estimatedHeight = 1200 + (order.parsedData.items.length * 30);
             canvas.height = estimatedHeight;
             const ctx = canvas.getContext('2d');
 
@@ -1610,11 +1611,19 @@ SmartLabel ยินดีให้บริการครับ ✅
                 ctx.fillText(`- ไม่ระบุรายการ -`, 10, y); y += 20;
             }
 
-            // ครอป Canvas ให้พอดีเนื้อหาจริง
+            // ==========================================
+            // ⭐️ ครอป Canvas ให้พอดีเนื้อหา และเทพื้นขาวแก้บั๊กแถบดำ
+            // ==========================================
             const finalCanvas = document.createElement('canvas');
             finalCanvas.width = canvas.width;
-            finalCanvas.height = y + 15;
+            finalCanvas.height = y + 20; // เผื่อระยะขอบล่าง
             const finalCtx = finalCanvas.getContext('2d');
+            
+            // 1. เทสีขาวเป็นพื้นหลังก่อนเสมอ ป้องกันความโปร่งใสที่เครื่องพิมพ์จะอ่านเป็นสีดำ
+            finalCtx.fillStyle = '#FFFFFF';
+            finalCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+            
+            // 2. วางภาพจ่าหน้าทั้งหมดที่วาดไว้ทับลงไป
             finalCtx.drawImage(canvas, 0, 0);
 
             // แปลงภาพเป็น ESC/POS Byte Data ยิงเข้าเครื่องพิมพ์
@@ -1634,7 +1643,7 @@ SmartLabel ยินดีให้บริการครับ ✅
                 printData.push(byte);
               }
             }
-            printData.push(0x0A, 0x0A, 0x0A);
+            printData.push(0x0A, 0x0A, 0x0A); // เลื่อนกระดาษออก
 
             await sendDataToPrinter(new Uint8Array(printData));
             await new Promise(resolve => setTimeout(resolve, 800));
@@ -3318,30 +3327,35 @@ if (!user && isAuthView) {
                           <span className="text-gray-500">Admin: {user?.email?.split('@')[0]}</span>
                         </div>
 
-                        {/* Sender Info (Compact) */}
-                        <div className="mb-2 border-b-2 border-black pb-2 flex justify-between items-start gap-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[9px] text-gray-500 font-medium leading-none">ผู้ส่ง:</p>
-                            <p className="font-black text-sm leading-tight text-slate-900 mt-0.5">{storeProfile.name || "ไม่ระบุชื่อร้าน"}</p>
+                        {/* ⭐️ Sender Info (Stacked Layout ปรับใหม่) */}
+                        <div className="mb-2 border-b-2 border-black pb-2 flex flex-col gap-2">
+                          
+                          {/* 1. กล่องข้อความพิเศษ (อยู่ด้านบน กางเต็มความกว้าง) */}
+                          {storeProfile?.specialLine1 && (
+                            <div className="w-full p-1.5 border border-black rounded-sm text-[9px] font-bold text-slate-800 leading-tight bg-slate-50/50 flex flex-col text-left">
+                              <p className="text-[10px] font-black text-blue-700 border-b border-gray-300 pb-0.5 mb-0.5 uppercase tracking-wide">
+                                {storeProfile.specialLine1}
+                              </p>
+                              {/* นำข้อความรองและเลขสัญญามาจัดเรียงแนวนอนแบบยืดหยุ่น ประหยัดพื้นที่บรรทัด */}
+                              <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                                {storeProfile.specialLine2 && <p>{storeProfile.specialLine2}</p>}
+                                {storeProfile.licenseNo && <p>เลขที่: {storeProfile.licenseNo}</p>}
+                                {storeProfile.contractNo && <p>สัญญา: {storeProfile.contractNo}</p>}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 2. ชื่อและที่อยู่ผู้ส่ง (อยู่ด้านล่าง กางเต็มความกว้าง) */}
+                          <div className="w-full min-w-0">
+                            <p className="text-[10px] text-gray-500 font-bold leading-none mb-1">ผู้ส่ง:</p>
+                            <p className="font-black text-base leading-tight text-slate-900">{storeProfile.name || "ไม่ระบุชื่อร้าน"}</p>
                             {storeProfile.address && (
-                              <p className="text-[10px] text-slate-600 leading-tight mt-1 font-medium break-words">
+                              <p className="text-[11px] text-slate-700 leading-snug mt-1 font-medium break-words">
                                 {storeProfile.address} {storeProfile.phone ? `โทร. ${storeProfile.phone}` : ''}
                               </p>
                             )}
                           </div>
-
-                          {storeProfile?.specialLine1 ? (
-                            <div className="w-[125px] p-1.5 border border-black rounded-sm text-[8px] font-bold text-slate-800 leading-tight bg-slate-50/50 flex flex-col justify-center flex-shrink-0 text-left">
-                              <p className="text-[7.5px] font-black text-blue-700 border-b border-gray-300 pb-0.5 mb-0.5 uppercase tracking-wide truncate">
-                                {storeProfile.specialLine1}
-                              </p>
-                              <p className="truncate">{storeProfile.specialLine2 || ""}</p>
-                              <p className="truncate">เลขที่: {storeProfile.licenseNo || "-"}</p>
-                              <p className="truncate">สัญญา: {storeProfile.contractNo || "-"}</p>
-                            </div>
-                          ) : (
-                            <div className="w-[125px] h-10 flex-shrink-0"></div>
-                          )}
+                          
                         </div>
 
                         {/* COD Section (ถ้ามี) */}
