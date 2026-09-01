@@ -1424,11 +1424,85 @@ SmartLabel ยินดีให้บริการครับ ✅
             
             ctx.fillRect(10, y, canvas.width - 20, 2); y += 22;
 
-            // --- ผู้ส่ง ---
-            ctx.font = '14px sans-serif';
+            // --- ข้อมูลพิเศษ (สัญญาส่งของ) & ผู้ส่ง ---
+            if (storeProfile.specialLine1) {
+                // 1. วาดกล่องคำสั่งพิเศษด้านบน กางเต็มพื้นที่
+                const boxStartX = 10;
+                const boxStartY = y;
+                let textY = y + 22;
+
+                ctx.font = 'bold 14px sans-serif';
+                ctx.fillText(storeProfile.specialLine1, 15, textY);
+                textY += 12;
+                
+                // เส้นคั่นขีดล่างในกรอบ
+                ctx.fillRect(15, textY, canvas.width - 30, 1);
+                textY += 20;
+
+                ctx.font = '12px sans-serif';
+                let hasExtraInfo = false;
+                
+                if (storeProfile.specialLine2) {
+                    ctx.fillText(storeProfile.specialLine2, 15, textY); 
+                    textY += 18;
+                    hasExtraInfo = true;
+                }
+                
+                // นำข้อมูลใบอนุญาตและสัญญามาต่อกัน
+                let contractInfo = "";
+                if (storeProfile.licenseNo) contractInfo += `เลขที่: ${storeProfile.licenseNo}   `;
+                if (storeProfile.contractNo) contractInfo += `สัญญา: ${storeProfile.contractNo}`;
+                
+                if (contractInfo.trim() !== "") {
+                    ctx.fillText(contractInfo.trim(), 15, textY); 
+                    textY += 18;
+                    hasExtraInfo = true;
+                }
+
+                // ตีกรอบสี่เหลี่ยมครอบ
+                const boxHeight = textY - boxStartY + (hasExtraInfo ? 0 : -10);
+                ctx.lineWidth = 1;
+                ctx.strokeRect(boxStartX, boxStartY, canvas.width - 20, boxHeight);
+                
+                y = boxStartY + boxHeight + 15; // ดันระยะ y ลงมาเตรียมวาดผู้ส่ง
+            }
+
+            // 2. วาดที่อยู่ผู้ส่ง (อยู่ด้านล่างกรอบพิเศษ หรืออยู่บนสุดถ้าไม่มีกรอบ กางเต็ม 100%)
+            ctx.font = 'bold 12px sans-serif';
             ctx.fillText(`ผู้ส่ง:`, 10, y);
-            ctx.font = 'bold 16px sans-serif';
-            ctx.fillText(`${storeProfile.name || '-'}`, 45, y); y += 22;
+            y += 22;
+            
+            ctx.font = 'bold 20px sans-serif';
+            ctx.fillText(`${storeProfile.name || '-'}`, 10, y); 
+            y += 24;
+            
+            if (storeProfile.phone) {
+                ctx.font = 'bold 14px sans-serif';
+                ctx.fillText(`☎ ${storeProfile.phone}`, 10, y); 
+                y += 20;
+            }
+
+            if (storeProfile.address) {
+                ctx.font = '14px sans-serif';
+                const senderWords = storeProfile.address.split(' ');
+                let senderLine = '';
+                for(let n = 0; n < senderWords.length; n++) {
+                    const testLine = senderLine + senderWords[n] + ' ';
+                    const metrics = ctx.measureText(testLine);
+                    // ตัดบรรทัดอัตโนมัติ ไม่ให้ทะลุขอบกระดาษ
+                    if (metrics.width > canvas.width - 20 && n > 0) {
+                        ctx.fillText(senderLine, 10, y);
+                        senderLine = senderWords[n] + ' ';
+                        y += 20;
+                    } else {
+                        senderLine = testLine;
+                    }
+                }
+                ctx.fillText(senderLine, 10, y); 
+                y += 25; 
+            } else {
+                y += 10;
+            }
             
             // --- COD ---
             if (order.parsedData.isCOD) {
