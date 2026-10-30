@@ -3289,29 +3289,38 @@ if (!user && isAuthView) {
                   </div>
 
                   {/* แถบด้านบน: เพิ่ม Dropdown เลือกขนส่ง (อัปเกรด Responsive เนียนกริบ) */}
-                  <div className="sticky top-0 bg-white/90 backdrop-blur-md border-b border-slate-200 p-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 z-10 print:hidden">
-                    <h2 className="text-xl font-black text-gray-800 flex items-center gap-2 whitespace-nowrap">
+                  {/* แถบด้านบน: เพิ่ม Dropdown เลือกขนส่ง (อัปเกรด Responsive ป้องกันปุ่มตกขอบ 100%) */}
+                  <div className="sticky top-0 bg-white/90 backdrop-blur-md border-b border-slate-200 p-4 z-10 print:hidden flex flex-col gap-3">
+                    
+                    {/* หัวข้อ "2. สั่งพิมพ์" */}
+                    <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
                       <span className="text-blue-500">2.</span> สั่งพิมพ์
                     </h2>
                     
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
-                      {/* 🚚 ตัวเลือกขนส่ง */}
-                      <select 
-                        disabled={orders.length > 0 && orders[0].isSaved} // 🔒 ล็อก Dropdown ถ้ารายการนี้เคยบันทึกแล้ว
-                        className={`w-full sm:w-auto min-w-[220px] max-w-full text-ellipsis overflow-hidden border border-gray-300 font-bold py-2.5 px-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 shadow-sm text-sm ${orders.length > 0 && orders[0].isSaved ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-gray-700'}`}
-                        value={selectedCarrier}
-                        onChange={(e) => setSelectedCarrier(e.target.value)}
-                      >
-                        <option value="THP">📮 ไปรษณีย์ไทย (สร้างเลขให้อัตโนมัติ)</option>
-                        <option value="NONE">📦 ขนส่งอื่น ๆ (เว้นว่างเลขพัสดุไว้เขียนเอง)</option>
-                      </select>
+                    {/* กล่องบรรจุตัวเลือกขนส่ง และ ปุ่มบันทึก */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full">
+                      
+                      {/* 🚚 ตัวเลือกขนส่ง (ปรับให้บีบตัวได้และตัดคำเมื่อจอแคบ) */}
+                      <div className="flex-1 min-w-0">
+                        <select 
+                          disabled={orders.length > 0 && orders[0].isSaved} 
+                          className={`w-full max-w-full text-ellipsis overflow-hidden border border-gray-300 font-bold py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 shadow-sm text-sm ${orders.length > 0 && orders[0].isSaved ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-gray-700'}`}
+                          value={selectedCarrier}
+                          onChange={(e) => setSelectedCarrier(e.target.value)}
+                        >
+                          <option value="THP">📮 ไปรษณีย์ไทย (สร้างเลขให้)</option>
+                          <option value="NONE">📦 ขนส่งอื่น (เว้นว่างไว้เขียนเอง)</option>
+                        </select>
+                      </div>
 
+                      {/* 💾 ปุ่มบันทึก & พิมพ์ (ห้ามโดนบีบเด็ดขาด) */}
                       <button 
                         onClick={handleSaveAndPrint} 
-                        className="w-full sm:w-auto flex-shrink-0 btn-cute bg-blue-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 whitespace-nowrap text-sm"
+                        className="flex-shrink-0 w-full sm:w-auto btn-cute bg-blue-600 text-white font-bold py-2.5 px-5 rounded-xl shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 whitespace-nowrap text-sm"
                       >
                         💾 บันทึก & พิมพ์
                       </button>
+
                     </div>
                   </div>
 
