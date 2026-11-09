@@ -406,26 +406,6 @@ SmartLabel ยินดีให้บริการครับ ✅
     } catch (error) { console.error("Error loading affiliate data:", error); }
   };
 
-    // ดึงเฉพาะแชทที่เจ้าของเป็นเรา (user.uid) และมีสถานะเป็น 'new'
-  useEffect(() => {
-    if (!user) return; 
-
-    const q = query(
-      collection(db, 'chats'), 
-      where('ownerId', '==', user.uid), 
-      where('status', '==', 'new')
-    );
-    const unsubscribeChats = onSnapshot(qChats, (snapshot) => {
-      const chatData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setIncomingChats(chatData);
-    });
-
-    return () => unsubscribeChats();
-  }, []);
-
   // ========================================================
   // 🛡️ ยามเฝ้าประตู: เช็ควันหมดอายุ Premium อัตโนมัติ
   // ========================================================
@@ -1107,8 +1087,20 @@ SmartLabel ยินดีให้บริการครับ ✅
     setShowTutorial(true);   // สั่งให้หน้าต่างกระจกฝ้า Tutorial เด้งขึ้นมา
   };
 
-  // 🔑 1. ฟังก์ชันขอ Token เพื่อเข้าถึงระบบ Preload [cite: 46, 189, 237]
+// 🔑 1. ฟังก์ชันขอ Token (เรียกผ่าน API หลังบ้าน ปลอดภัย 100%)
   const getTHPToken = async () => {
+    try {
+      const response = await fetch('/api/thp-token', { method: 'POST' });
+      const resData = await response.json();
+      return resData.token || null;
+    } catch (error) {
+      console.error("Token Error:", error);
+      return null;
+    }
+  };
+
+  // 🔑 1. ฟังก์ชันขอ Token เพื่อเข้าถึงระบบ Preload [cite: 46, 189, 237]
+  {/*const getTHPToken = async () => {
     try {
       const username = '22061'; // [cite: 7, 48, 85]
       const password = 'RWJRlBbGkeMRTr7DSLGd9JGAaP0zjqPI'; // [cite: 8, 97, 99]
@@ -1126,7 +1118,7 @@ SmartLabel ยินดีให้บริการครับ ✅
       console.error("Token Error:", error);
       return null;
     }
-  };
+  };*/}
 
   // 📡 2. ฟังก์ชันส่งข้อมูลรายละเอียดจ่าหน้าเข้าระบบ (Preload) [cite: 236, 324, 503]
   const preloadOrderToTHP = async (token, order, trackingNum) => {
@@ -1902,7 +1894,24 @@ const handleExportCSV = () => {
       const TELEGRAM_BOT_TOKEN = "8781734272:AAFngphg8npXdgYpegDvVqxSCx98t8K1DJc"; 
       const TELEGRAM_CHAT_ID = "-5548697561"; 
       
+      // (2) 📡 ยิงเข้า Telegram ผ่าน API หลังบ้าน (ปลอดภัย 100%)
       const messageText = 
+        `🚨 *มียอดแจ้งโอนเงินเข้ามาใหม่! [SmartLabel]*\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `🏪 *ร้านค้า:* ${currentStoreName}\n` +
+        `📧 *อีเมล:* ${user.email || 'ไม่ระบุ'}\n` +
+        `📦 *แพ็กเกจ:* ${packageName}\n` +
+        `💰 *ยอดเงินโอน:* ฿${amountPaid.toLocaleString()}.00 บาท\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `🔍 *กรุณาตรวจสอบและอนุมัติที่หน้า SuperAdmin*`;
+
+      await fetch('/api/telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageText })
+      }).catch(err => console.log("Telegram send background error:", err));
+
+      {/*const messageText = 
         `🚨 *มียอดแจ้งโอนเงินเข้ามาใหม่! [SmartLabel]*\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `🏪 *ร้านค้า:* ${currentStoreName}\n` +
@@ -1915,7 +1924,7 @@ const handleExportCSV = () => {
       // ใช้ยิงผ่านท่อโบราณแต่โคตรเสถียรด้วย GET/POST URL String
       const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(messageText)}&parse_mode=Markdown`;
       
-      await fetch(telegramUrl).catch(err => console.log("Telegram send background error:", err));
+      await fetch(telegramUrl).catch(err => console.log("Telegram send background error:", err));*/}
 
       alert("🚀 ส่งหลักฐานการชำระเงินสำเร็จเรียบร้อย! ระบบกำลังตรวจสอบสลิปค่ะ");
       setIsTopupOpen(false);
@@ -2322,17 +2331,26 @@ if (!user && isAuthView) {
                   {authMode === 'login' && (
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         const emailInput = document.querySelector('input[name="email"]');
                         if (!emailInput || !emailInput.value || !emailInput.value.includes('@')) {
                           alert("⚠️ กรุณากรอก 'อีเมล' ของคุณในช่องด้านบน แล้วคลิก 'ลืมรหัสผ่าน' อีกครั้งครับ");
                           return;
                         }
-                        import("firebase/auth").then(({ sendPasswordResetEmail }) => {
-                          sendPasswordResetEmail(auth, emailInput.value)
-                            ? alert(`✅ ระบบได้ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่: ${emailInput.value} เรียบร้อยแล้วครับ!`)
-                            : alert("❌ ไม่พบที่อยู่อีเมลนี้ในระบบ กรุณาตรวจสอบอีกครั้งครับ");
-                        });
+                        
+                        try {
+                          // ⚡ ใช้ await เพื่อรอคำตอบจาก Firebase ให้แน่ชัดก่อน
+                          await sendPasswordResetEmail(auth, emailInput.value);
+                          alert(`✅ ระบบได้ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่: ${emailInput.value} เรียบร้อยแล้วครับ! กรุณาเช็คในอีเมล (หรือกล่องจดหมายขยะ)`);
+                        } catch (error) {
+                          console.error("Error resetting password:", error);
+                          // 🛡️ ดักจับ Error แจ้งเตือนเมื่อไม่พบอีเมล
+                          if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-email') {
+                            alert("❌ ไม่พบที่อยู่อีเมลนี้ในระบบ กรุณาตรวจสอบอีกครั้งครับ");
+                          } else {
+                            alert("❌ เกิดข้อผิดพลาดในการส่งลิงก์ กรุณาลองใหม่อีกครั้ง");
+                          }
+                        }
                       }}
                       className={`text-xs font-bold hover:underline ${authType === 'partner' ? 'text-indigo-500' : 'text-blue-500'}`}
                     >
