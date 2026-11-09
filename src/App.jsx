@@ -259,9 +259,9 @@ SmartLabel ยินดีให้บริการครับ ✅
 
   const [historyOrders, setHistoryOrders] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [modalSearchQuery, setModalSearchQuery] = useState(''); // 🔥 แยกช่องค้นหาของ Modal ถังขยะออกมา
   const [trackingInputs, setTrackingInputs] = useState({}); // 🔥 เก็บเลขแทรคกิ้งชั่วคราวในตาราง (key คือ order.id)
   const [selectedDate, setSelectedDate] = useState(null); // 🔥 เก็บค่าว่ากำลังคลิกดูสถิติของวันไหน
-  const [reprintOrder, setReprintOrder] = useState(null);
 
   const [dashboardStats, setDashboardStats] = useState({ totalOrders: 0, codOrders: 0, totalCodAmount: 0, pieData: [], barData: [] });
   const [billingRequests, setBillingRequests] = useState([]);
@@ -402,7 +402,7 @@ SmartLabel ยินดีให้บริการครับ ✅
       const qW = query(collection(db, "withdrawals")); 
       const snapW = await getDocs(qW);
       const wList = []; snapW.forEach(d => wList.push({id: d.id, ...d.data()}));
-      setAllWithdrawals(wList.sort((a,b) => b.createdAt?.toMillis() - a.createdAt?.toMillis()));
+      setAllWithdrawals(wList.sort((a,b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0)));
     } catch (error) { console.error("Error loading affiliate data:", error); }
   };
 
@@ -511,6 +511,13 @@ SmartLabel ยินดีให้บริการครับ ✅
             }
 
           } else {
+            // 🛡️ ดักจับซอมบี้: ถ้าเป็นการ "ล็อกอิน" แต่ไม่พบข้อมูลใน Firestore แปลว่าพนักงานคนนี้ถูกไล่ออกและลบข้อมูลไปแล้ว
+            if (authMode === 'login') {
+              alert("❌ บัญชีนี้ถูกระงับหรือลบออกจากระบบแล้วครับ");
+              signOut(auth);
+              return;
+            }
+
             // 🆕 กรณีเป็นผู้ใช้ใหม่ (สมัครสมาชิกครั้งแรก)
             const roleToSet = authType === 'partner' ? 'Affiliate' : 'Owner';
             const initialData = {
@@ -611,11 +618,16 @@ SmartLabel ยินดีให้บริการครับ ✅
             transferCount++; 
         }
 
-        // 📅 จัดกลุ่มยอดรายวันสำหรับกราฟแท่ง
+        // 📅 จัดกลุ่มยอดรายวันสำหรับกราฟแท่ง (เรียงลำดับแม่นยำทุกเบราว์เซอร์)
         if (data.createdAt) {
-           const dateStr = data.createdAt.toDate().toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
-           if (!dateMap[dateStr]) dateMap[dateStr] = { name: dateStr, โอนเงิน: 0, COD: 0 };
-           if (data.isCOD) dateMap[dateStr].COD += 1; else dateMap[dateStr].โอนเงิน += 1;
+           const dateObj = data.createdAt.toDate();
+           // 1. สร้างกุญแจสำหรับจัดเรียง (รูปแบบ YYYY-MM-DD)
+           const sortKey = dateObj.toISOString().split('T')[0]; 
+           // 2. สร้างข้อความสำหรับแสดงผลภาษาไทย
+           const displayStr = dateObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+           
+           if (!dateMap[sortKey]) dateMap[sortKey] = { sortKey: sortKey, name: displayStr, โอนเงิน: 0, COD: 0 };
+           if (data.isCOD) dateMap[sortKey].COD += 1; else dateMap[sortKey].โอนเงิน += 1;
         }
 
         // เก็บแต้มพนักงานสำหรับ Leaderboard (คำนวณสะสมตามปกติ)
@@ -639,7 +651,7 @@ SmartLabel ยินดีให้บริการครับ ✅
         codOrders: codCount, 
         totalCodAmount: codSum,
         pieData: [{ name: 'โอนเงินแล้ว', value: transferCount }, { name: 'เก็บเงินปลายทาง', value: codCount }],
-        barData: Object.values(dateMap).sort((a, b) => new Date(a.name) - new Date(b.name)) || [{ name: 'รอข้อมูลใหม่', โอนเงิน: 0, COD: 0 }],
+        barData: Object.values(dateMap).sort((a, b) => a.sortKey.localeCompare(b.sortKey)) || [{ name: 'รอข้อมูลใหม่', โอนเงิน: 0, COD: 0 }],
         staffData: staffLeaderboard 
       });
     }, (error) => { 
@@ -715,7 +727,8 @@ SmartLabel ยินดีให้บริการครับ ✅
 
   const loadStaffData = async () => {
     try {
-      const q = query(collection(db, "users"), where("ownerId", "==", user.uid));
+      // ⚡ เปลี่ยนจาก user.uid เป็น userOwnerId เพื่อให้ Admin เห็นข้อมูลก้อนเดียวกับเถ้าแก่
+      const q = query(collection(db, "users"), where("ownerId", "==", userOwnerId));
       const querySnapshot = await getDocs(q);
       const staffs = [];
       querySnapshot.forEach((doc) => { staffs.push({ id: doc.id, ...doc.data() }); });
@@ -743,49 +756,6 @@ SmartLabel ยินดีให้บริการครับ ✅
     }
   }, [userRole]);
 
-  // 🔔 ระบบขออนุญาตแจ้งเตือน (Web Push Notification)
-  {/*useEffect(() => {
-    const requestNotificationPermission = async () => {
-      try {
-        console.log("กำลังขออนุญาตส่งแจ้งเตือน...");
-        const permission = await Notification.requestPermission();
-        
-        if (permission === 'granted') {
-          console.log("✅ ผู้ใช้อนุญาตให้ส่งแจ้งเตือนแล้ว!");
-
-          // 🛠️ 1. จูงมือระบบไปลงทะเบียนบุรุษไปรษณีย์ด้วยตัวเอง
-          const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-          
-          // 🛠️ 2. ขอรับ Token (ใส่ registration พ่วงเข้าไปด้วย)
-          const currentToken = await getToken(messaging, { 
-            vapidKey: "BGfgMAh9aIGcLHy4sZbjmJw4mTfkLIutjfljsCR8avKDJNCTGhN7Om5z4mGhNHmd5dQQgw5ionip5irvzU6xZKk", // เช็คให้ชัวร์ว่าไม่มีเว้นวรรคข้างหน้าหรือข้างหลังรหัสเท่านี้นะครับ
-            serviceWorkerRegistration: registration // 👈 เพิ่มบรรทัดนี้เข้ามาครับ!
-          });
-
-          if (currentToken) {
-            console.log("🔑 Token ของเครื่องนี้คือ:", currentToken);
-          } else {
-            console.log("ไม่มี Token กลับมา ให้ตรวจสอบ VAPID Key ครับ");
-          }   
-        } else {
-          console.log("❌ ผู้ใช้ไม่อนุญาตให้ส่งแจ้งเตือน");
-        }
-      } catch (error) {
-        console.error("เกิดข้อผิดพลาดในการขอสิทธิ์แจ้งเตือน:", error);
-      }
-    };
-
-    // ดักฟังข้อความแจ้งเตือน กรณีที่แม่ค้ากำลังเปิดหน้าเว็บเราทิ้งไว้อยู่ (Foreground)
-    const unsubscribeMessage = onMessage(messaging, (payload) => {
-      console.log("🔔 มีข้อความเข้าขณะเปิดแอป:", payload);
-      // ตรงนี้เราสามารถสั่งให้เด้ง Toast แจ้งเตือนมุมจอสวยๆ ได้ครับ
-      alert(`มีแจ้งเตือนใหม่: ${payload.notification.title}`); 
-    });
-
-    requestNotificationPermission();
-
-    return () => unsubscribeMessage();
-  }, []);*/}
   
   // 📡 🆕 ค่ายกลดึงข้อมูลตามแท็บหน้าจอ ฉบับสมบูรณ์ (รวมหน้าพนักงาน + ท่อประวัติการเงิน SuperAdmin)
   useEffect(() => { 
@@ -915,16 +885,27 @@ SmartLabel ยินดีให้บริการครับ ✅
   const checkCustomerHistory = async (orderId, phone) => {
     if (!phone || phone.length < 9 || !userOwnerId) return;
     try {
-      const q = query(collection(db, "orders"), where("phone", "==", phone));
+      // 🛡️ ปิดรอยรั่ว PDPA: สั่งให้ Database ส่งมาเฉพาะข้อมูลลูกค้าของร้านตัวเองเท่านั้น
+      const q = query(
+        collection(db, "orders"), 
+        where("phone", "==", phone),
+        where("ownerId", "==", userOwnerId) // 👈 ล็อกสิทธิ์ตรงนี้เลย!
+      );
+      
       const querySnapshot = await getDocs(q);
       if (!querySnapshot.empty) {
         const historyData = []; 
-        querySnapshot.forEach((doc) => { if(doc.data().ownerId === userOwnerId) { historyData.push(doc.data()); } });
+        querySnapshot.forEach((doc) => { historyData.push(doc.data()); }); // ไม่ต้อง if เช็คซ้ำแล้ว
+        
         if(historyData.length > 0) {
             historyData.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
             setOrders(prev => prev.map(o => o.id === orderId ? { ...o, crmSuggestion: historyData[0] } : o));
-        } else { setOrders(prev => prev.map(o => o.id === orderId ? { ...o, crmSuggestion: null } : o)); }
-      } else { setOrders(prev => prev.map(o => o.id === orderId ? { ...o, crmSuggestion: null } : o)); }
+        } else { 
+            setOrders(prev => prev.map(o => o.id === orderId ? { ...o, crmSuggestion: null } : o)); 
+        }
+      } else { 
+          setOrders(prev => prev.map(o => o.id === orderId ? { ...o, crmSuggestion: null } : o)); 
+      }
     } catch (error) { console.error(error); }
   };
 
@@ -1099,26 +1080,6 @@ SmartLabel ยินดีให้บริการครับ ✅
     }
   };
 
-  // 🔑 1. ฟังก์ชันขอ Token เพื่อเข้าถึงระบบ Preload [cite: 46, 189, 237]
-  {/*const getTHPToken = async () => {
-    try {
-      const username = '22061'; // [cite: 7, 48, 85]
-      const password = 'RWJRlBbGkeMRTr7DSLGd9JGAaP0zjqPI'; // [cite: 8, 97, 99]
-      const authHeader = 'Basic ' + btoa(`${username}:${password}`); // [cite: 48, 79]
-
-      // ขอ Token จาก URL มาตรฐาน [cite: 255]
-      const response = await fetch('https://pus2.thailandpost.com/redbox/auth/app/token', {
-        method: 'POST',
-        headers: { 'Authorization': authHeader }
-      });
-
-      const resData = await response.json();
-      return resData.detail === 'ok' ? resData.token : null; // [cite: 284, 306]
-    } catch (error) {
-      console.error("Token Error:", error);
-      return null;
-    }
-  };*/}
 
   // 📡 2. ฟังก์ชันส่งข้อมูลรายละเอียดจ่าหน้าเข้าระบบ (Preload) [cite: 236, 324, 503]
   const preloadOrderToTHP = async (token, order, trackingNum) => {
@@ -1309,6 +1270,14 @@ SmartLabel ยินดีให้บริการครับ ✅
   const handleSaveAndPrint = async () => {
     // 1. แยกออเดอร์ใหม่ที่ยังไม่เคยเซฟ
     const newOrdersToSave = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
+    
+    // 🛡️ เพิ่มค่ายกลดักจับโควต้า "ก่อน" เริ่มทำงาน
+    if (userRole === 'Owner' && quota < newOrdersToSave.length) {
+      alert(`⚠️ โควต้าไม่พอครับ! คุณมี ${quota} ใบ แต่กำลังจะบันทึก ${newOrdersToSave.length} ใบ`);
+      setIsTopupOpen(true); // เปิดหน้าต่างเติมเงินให้อัตโนมัติ
+      return; // สั่งเบรกการทำงานทันที
+    }
+
     let processedOrders = [...orders]; // ตัวแปรเก็บออเดอร์พร้อมพิมพ์ (ทั้งใหม่และเก่าผสมกัน)
 
     try {
@@ -1738,7 +1707,6 @@ SmartLabel ยินดีให้บริการครับ ✅
     }
   };
   const handleEditHistory = (order) => { setOrders([{ id: Date.now(), rawText: order.rawText || '', parsedData: extractOrderData(order.rawText || ''), isSaved: false, crmSuggestion: null }, { id: Date.now() + 1, rawText: '', parsedData: null, isSaved: false, crmSuggestion: null }]); setActiveTab('maker'); window.scrollTo(0, 0); };
-  const handleReprintHistory = (order) => { setReprintOrder(order); setTimeout(() => { window.print(); setReprintOrder(null); }, 300); };
   
   // 🔥 ระบบกรองข้อมูลอัจฉริยะ (กรองตามวันที่คลิกกราฟ + คำค้นหา Tracking/วันที่)
   // 🔥 ระบบกรองข้อมูลอัจฉริยะระดับ Enterprise (แยกสิทธิ์ Owner ดูได้หมด / Staff-Admin เห็นเฉพาะงานตัวเอง)
@@ -2419,25 +2387,6 @@ if (!user && isAuthView) {
     );
   }
 
-  if (reprintOrder) {
-    return (
-      <div className="bg-white min-h-screen">
-        <style>{`@media print { @page { size: 100mm 150mm; margin: 0; } body, html { background-color: white; margin: 0; padding: 0; -webkit-print-color-adjust: exact; } .thermal-label { width: 100mm !important; min-height: 148mm !important; height: auto !important; padding: 5mm !important; box-sizing: border-box !important; margin: 0 !important; border: none !important; box-shadow: none !important; page-break-after: always; page-break-inside: avoid; } }`}</style>
-        <div className="w-full max-w-sm mx-auto p-4 thermal-label print:max-w-none print:m-0 print:p-2">
-           <div className="flex justify-between border-b pb-2 mb-2 font-bold text-sm"><span>SmartLabel ✅</span><span className="text-gray-500">Admin: {reprintOrder.adminEmail?.split('@')[0]}</span></div>
-           <div className="mb-3"><p className="text-xs text-gray-500">ผู้ส่ง:</p><p className="font-bold text-sm">{reprintOrder.storeName}</p></div>
-           {reprintOrder.isCOD && <div className="bg-black text-white text-center py-2 mb-2 text-2xl font-bold">COD: {reprintOrder.codAmount}</div>}
-           <div className="bg-gray-100 p-2 mb-2 print:bg-white print:border"><p className="text-xs text-blue-600 font-bold">ผู้รับ:</p><p className="text-xl font-bold">{reprintOrder.customerName || 'ไม่มีชื่อผู้รับ'}</p><p className="text-lg font-bold">☎ {reprintOrder.phone || '-'}</p><p className="text-sm leading-tight">{reprintOrder.address || 'ไม่มีที่อยู่'}</p></div>
-           <div className="text-center text-4xl font-black mb-3 tracking-widest">{reprintOrder.zipcode || '00000'}</div>
-           <div className="flex flex-col items-center border-t border-b py-2 mb-2">
-             <QRCodeSVG value={JSON.stringify({ id: reprintOrder.id, cod: reprintOrder.isCOD ? reprintOrder.codAmount : 0 })} size={60} />
-             <p className="text-[10px] mt-1 font-mono uppercase font-bold text-slate-500 tracking-widest">REF: #{String(reprintOrder.id).slice(-6)}</p>
-           </div>
-           <div><p className="text-xs font-bold">รายการสินค้า:</p>{reprintOrder.items && reprintOrder.items.length > 0 ? (<ul className="text-[10px] list-disc pl-4 mt-1 leading-tight">{reprintOrder.items.map((item, index) => <li key={index}>{item}</li>)}</ul>) : (<p className="text-[10px] text-gray-500 italic mt-1">- ไม่ระบุรายการ -</p>)}</div>
-        </div>
-      </div>
-    );
-  }
   // --- Affiliate Partner Dashboard ---
   const handleWithdrawRequest = async (e) => {
      e.preventDefault();
@@ -2460,7 +2409,7 @@ if (!user && isAuthView) {
        const qW = query(collection(db, "withdrawals"), where("affiliateId", "==", user.uid));
        const snap = await getDocs(qW);
        const wList = []; snap.forEach(d => wList.push({id: d.id, ...d.data()}));
-       setWithdrawalHistory(wList.sort((a,b) => b.createdAt?.toMillis() - a.createdAt?.toMillis()));
+       setWithdrawalHistory(wList.sort((a,b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0)));
        e.target.reset();
      } catch (error) { alert("เกิดข้อผิดพลาดในการแจ้งถอนเงิน"); }
   };
@@ -3112,7 +3061,7 @@ if (!user && isAuthView) {
                </thead>
                <tbody>
                  {allShops.length === 0 ? ( 
-                   <tr><td colSpan="4" className="text-center py-12 text-slate-400 font-medium">ยังไม่มีร้านค้าในระบบ...</td></tr>
+                   <tr><td colSpan="5" className="text-center py-12 text-slate-400 font-medium">ยังไม่มีร้านค้าในระบบ...</td></tr>
                  ) : ( 
                    allShops.map((shop, idx) => (
                      <tr key={idx} className="border-t border-slate-100 hover:bg-blue-50/50 transition-colors">
@@ -3556,7 +3505,7 @@ if (!user && isAuthView) {
                   </thead>
                   <tbody>
                     {filteredOrders.length === 0 ? (
-                      <tr><td colSpan="7" className="text-center py-16 text-slate-400 font-medium">ไม่พบข้อมูลที่ค้นหา หรือยังไม่มีออเดอร์ในวันนี้...</td></tr>
+                      <tr><td colSpan="8" className="text-center py-16 text-slate-400 font-medium">ไม่พบข้อมูลที่ค้นหา หรือยังไม่มีออเดอร์ในวันนี้...</td></tr>
                     ) : (
                       filteredOrders.map((order, idx) => (
                           <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
@@ -3912,16 +3861,16 @@ if (!user && isAuthView) {
                 type="text"
                 placeholder="🔍 ค้นหาจากชื่อ, เบอร์โทร, หรือข้อความ..."
                 className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-shadow text-sm"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={modalSearchQuery} // ⚡ เปลี่ยนเป็น modalSearchQuery
+                onChange={(e) => setModalSearchQuery(e.target.value)} // ⚡ เปลี่ยนฟังก์ชันเซ็ตค่า
               />
             </div>
 
-            {/* รายการแชท */}
+            {/* รายการแชท (แก้ .includes เป็น modalSearchQuery ทั้ง 2 บรรทัด) */}
             <div className="p-4 flex-1 overflow-y-auto space-y-3 bg-gray-50">
               {allChats
                 .filter(c => c.status === "processed" || c.status === "dismissed")
-                .filter(c => c.message.includes(searchQuery) || (c.senderId && c.senderId.includes(searchQuery)))
+                .filter(c => c.message.includes(modalSearchQuery) || (c.senderId && c.senderId.includes(modalSearchQuery)))
                 .length === 0 ? (
                   <div className="text-center text-gray-400 py-10 flex flex-col items-center">
                     <span className="text-4xl mb-2">📭</span>
