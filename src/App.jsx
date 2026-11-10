@@ -102,6 +102,35 @@ const extractOrderData = (rawText) => {
   return { customerName, phone, address, zipcode, items, isCOD, codAmount, warnings };
 };
 
+// 🕰️ ฟังก์ชันหาเวลาปัจจุบันของประเทศไทย (ป้องกันลูกค้าโกงเวลาเครื่องตัวเอง)
+const getThaiDateString = () => {
+  const thaiTime = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Bangkok"}));
+  const yyyy = thaiTime.getFullYear();
+  const mm = String(thaiTime.getMonth() + 1).padStart(2, '0');
+  const dd = String(thaiTime.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+// 🧮 สมองกลคำนวณราคาแบบขั้นบันได (Tiered Pricing)
+const calculatePrintCost = (currentDailyCount, addCount) => {
+  let totalCost = 0;
+  let count = currentDailyCount;
+  let remaining = addCount;
+
+  while (remaining > 0) {
+    count++;
+    remaining--;
+    if (count <= 5) totalCost += 0;          // ใบที่ 1-5 ฟรี
+    else if (count <= 20) totalCost += 0.40; // ใบที่ 6-20
+    else if (count <= 50) totalCost += 0.30; // ใบที่ 21-50
+    else if (count <= 100) totalCost += 0.25;// ใบที่ 51-100
+    else if (count <= 200) totalCost += 0.20;// ใบที่ 101-200
+    else if (count <= 500) totalCost += 0.15;// ใบที่ 201-500
+    else totalCost += 0.10;                  // 501 ขึ้นไป
+  }
+  return Number(totalCost.toFixed(2)); // ป้องกันทศนิยมเพี้ยน
+};
+
 const COLORS = ['#22c55e', '#f97316'];
 
 export default function App() {
@@ -121,7 +150,12 @@ export default function App() {
   const userPlan = 'premium';
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(''); 
-  const [quota, setQuota] = useState(0); 
+  const [balance, setBalance] = useState(0);              // 💰 กระเป๋าเงิน (บาท)
+  const [dailyPrintedCount, setDailyPrintedCount] = useState(0); // 📦 ยอดพิมพ์วันนี้
+  const [lastPrintDate, setLastPrintDate] = useState(""); // 📅 วันที่พิมพ์ล่าสุด
+  
+  // ⚡ ในส่วนของ [isTopupOpen] ให้เปลี่ยนตัวแปร selectedPackage เป็นตัวนี้แทน
+  const [topupAmount, setTopupAmount] = useState(100);
   const [userOwnerId, setUserOwnerId] = useState(null);
 
   const [isTopupOpen, setIsTopupOpen] = useState(false);
@@ -488,7 +522,9 @@ SmartLabel ยินดีให้บริการครับ ✅
                     address: ownerData.address || "",
                     plan: ownerData.plan || "Free" // 🔓 ม่านจะเปิดที่นี่เพราะ plan จะเป็น Premium ตามเถ้าแก่
                   });
-                  setQuota(ownerData.quota || 0); // 🎫 โควต้าจะเด้งขึ้นตามเถ้าแก่
+                  setBalance(ownerData.balance || 0);
+                  setDailyPrintedCount(ownerData.dailyPrintedCount || 0);
+                  setLastPrintDate(ownerData.lastPrintDate || "");
                   setUserOwnerId(data.ownerId);
                 }
               }
@@ -500,7 +536,9 @@ SmartLabel ยินดีให้บริการครับ ✅
                 address: data.address || "",
                 plan: data.plan || "Free"
               });
-              setQuota(data.quota || 0);
+              setBalance(data.balance || 0);
+              setDailyPrintedCount(data.dailyPrintedCount || 0);
+              setLastPrintDate(data.lastPrintDate || "");
               setUserOwnerId(currentUser.uid);
               
               if (currentRole === 'SuperAdmin') setActiveTab('shops');
@@ -529,13 +567,15 @@ SmartLabel ยินดีให้บริการครับ ✅
             };
             await setDoc(userRef, initialData);
             setUserRole(roleToSet);
-            setQuota(roleToSet === 'Owner' ? 50 : 0);
+            setBalance(0);
+            setDailyPrintedCount(0);
+            setLastPrintDate("");
             setUserOwnerId(currentUser.uid);
           }
         } catch (error) { console.error("Error fetching user data:", error); }
       } else {
         // 🚪 ออกจากระบบ: ล้างค่าทั้งหมด
-        setUser(null); setUserRole(''); setQuota(0); setUserOwnerId(null); setAffiliateData(null);
+        setUser(null); setUserRole(''); setBalance(0); setDailyPrintedCount(0); setLastPrintDate(""); setUserOwnerId(null); setAffiliateData(null);
       }
       setLoading(false);
     });
@@ -1271,11 +1311,20 @@ SmartLabel ยินดีให้บริการครับ ✅
     // 1. แยกออเดอร์ใหม่ที่ยังไม่เคยเซฟ
     const newOrdersToSave = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
     
-    // 🛡️ เพิ่มค่ายกลดักจับโควต้า "ก่อน" เริ่มทำงาน
-    if (userRole === 'Owner' && quota < newOrdersToSave.length) {
-      alert(`⚠️ โควต้าไม่พอครับ! คุณมี ${quota} ใบ แต่กำลังจะบันทึก ${newOrdersToSave.length} ใบ`);
-      setIsTopupOpen(true); // เปิดหน้าต่างเติมเงินให้อัตโนมัติ
-      return; // สั่งเบรกการทำงานทันที
+    // 🛡️ ค่ายกลตรวจจับวันที่และคำนวณราคาขั้นบันได (ทำงานเฉพาะ Owner และไม่ใช่แพ็กเกจพรีเมียมแบบเหมา)
+    let costToPay = 0;
+    let todayStr = getThaiDateString();
+    let currentCountForToday = (lastPrintDate === todayStr) ? dailyPrintedCount : 0;
+    
+    if (userRole === 'Owner' && storeProfile?.plan !== 'Premium') {
+      costToPay = calculatePrintCost(currentCountForToday, newOrdersToSave.length);
+      
+      // ถ้ายอดเงินในกระเป๋าไม่พอจ่ายค่าจ่าหน้า
+      if (balance < costToPay) {
+        alert(`⚠️ ยอดเงินไม่พอครับ! ค่าบริการสำหรับออเดอร์ใหม่ ${newOrdersToSave.length} ใบ คือ ฿${costToPay} แต่คุณมีเงิน ฿${balance.toFixed(2)}`);
+        setIsTopupOpen(true);
+        return; // สั่งเบรก ไม่บันทึก ไม่พิมพ์ใดๆ ทั้งสิ้น
+      }
     }
 
     let processedOrders = [...orders]; // ตัวแปรเก็บออเดอร์พร้อมพิมพ์ (ทั้งใหม่และเก่าผสมกัน)
@@ -1337,13 +1386,24 @@ SmartLabel ยินดีให้บริการครับ ✅
         // อัปเดตหน้าจอให้แสดงเลขพัสดุ
         setOrders(processedOrders);
 
-        // 💰 ตัดเครดิตเฉพาะจำนวนงานใหม่
+        // 💰 ตัดเงินจากกระเป๋าและอัปเดตสถิติรายวัน
         if (userRole === 'Owner') {
           const userRef = doc(db, "users", user.uid);
-          await updateDoc(userRef, { 
-            quota: increment(-newOrdersToSave.length), 
-            usedQuota: increment(newOrdersToSave.length) 
-          });
+          
+          if (storeProfile?.plan === 'Premium') {
+            // พรีเมียมเหมาจ่าย อัปเดตแค่สถิติ ไม่หักเงิน
+            await updateDoc(userRef, { 
+              dailyPrintedCount: currentCountForToday + newOrdersToSave.length,
+              lastPrintDate: todayStr
+            });
+          } else if (costToPay > 0 || currentCountForToday + newOrdersToSave.length > 0) {
+            // หักเงิน Pay-As-You-Go และอัปเดตสถิติ
+            await updateDoc(userRef, { 
+              balance: increment(-costToPay), 
+              dailyPrintedCount: currentCountForToday + newOrdersToSave.length,
+              lastPrintDate: todayStr
+            });
+          }
         }
       }
 
@@ -1824,24 +1884,10 @@ const handleExportCSV = () => {
       
       const currentStoreName = storeProfile?.name || "ร้านค้าสมาชิก SmartLabel";
       
-      // ดักจับและคำนวณราคา/จำนวนใบ ให้แม่นยำตรงกับแพ็กเกจที่เลือก
-      let amountPaid = 0;
-      let labelCount = 0;
-      let packageName = "Standard";
-
-      if (selectedPackage === 500) {
-        amountPaid = 200;
-        labelCount = 500;
-        packageName = "Standard (500 ใบ)";
-      } else if (selectedPackage === 2000) {
-        amountPaid = 500;
-        labelCount = 2000;
-        packageName = "🔥 Popular (2,000 ใบ)";
-      } else if (selectedPackage === 5000) {
-        amountPaid = 1000;
-        labelCount = 5000;
-        packageName = "💎 Ultimate Premium (5,000 ใบ)";
-      }
+      // ดึงยอดเงิน (amountPaid) ที่กรอกจาก State โดยตรง (ไม่ต้องเช็คแพ็กเกจ 500/2000 แล้ว)
+      const amountPaid = Number(topupAmount) || 0;
+      const packageName = "Pay-As-You-Go";
+      const labelCount = 0; // เราไม่ใช้ระบบนับใบ (โควต้า) แล้ว ปล่อยเป็น 0 ได้เลย
 
       // (1) บันทึกข้อมูลลง Firestore ให้โครงสร้างฟิลด์ตรงกับหน้า SuperAdmin 100%
       const topupRef = await addDoc(collection(db, "topup_requests"), {
@@ -1945,19 +1991,19 @@ const handleExportCSV = () => {
         const now = new Date();
 
         // 💎 ถ้าสลิปนี้มียอดเงิน 1,000 บาท ให้สับท่อเลื่อนขั้นเป็น Premium ทันที
-        if (amountPaid === 1000) {
+        if (amountPaid >= 1000) {
           newPlan = "Premium";
           if (expireDate > now) {
-            expireDate.setDate(expireDate.getDate() + 30); // ทบวันเพิ่มให้
+            expireDate.setDate(expireDate.getDate() + 30);
           } else {
             expireDate = new Date();
-            expireDate.setDate(expireDate.getDate() + 30); // เริ่มนับหนึ่งใหม่
+            expireDate.setDate(expireDate.getDate() + 30);
           }
         }
 
-        // บันทึกเพิ่มแต้มลง Firestore ถังหลัก
+        // บันทึกเพิ่มแต้มลง Firestore ถังหลัก (เปลี่ยนเป็น balance)
         await updateDoc(userRef, {
-          quota: newQuota,
+          balance: increment(amountPaid), // 💰 เพิ่มเงินเข้ากระเป๋าตรงๆ
           plan: newPlan,
           premiumExpireDate: newPlan === "Premium" ? Timestamp.fromDate(expireDate) : (userData.premiumExpireDate || null)
         });
@@ -2041,42 +2087,48 @@ if (!user && !isAuthView) {
           
           {/* 📸 ภาพแบล็กกราวด์: แม่ค้าออนไลน์มือโปรทำงานแพ็กของในบ้าน/สำนักงานขนาดเล็ก */}
           <div 
-            className="absolute inset-0 bg-cover bg-center transition-all duration-700 transform scale-105"
+            className="absolute inset-0 bg-cover bg-center transition-all duration-1000 transform scale-105 hover:scale-100"
             style={{ 
               backgroundImage: `url('https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&q=80&w=1920')`,
-              filter: 'blur(5px) brightness(0.25)' // 🔑 สาดเอฟเฟกต์เบลอและปรับมืดเพื่อให้เนื้อหาด้านหน้าโดดเด่นสะใจ
+              filter: 'blur(3px) brightness(0.25)' // 🔑 สาดเอฟเฟกต์เบลอและปรับมืดเพื่อให้เนื้อหาด้านหน้าโดดเด่นสะใจ
             }}
           ></div>
 
           {/* 🌌 ม่านแสงไล่เฉดสีช่วยดึงสายตาเข้าหาตรงกลาง */}
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-slate-950/40 to-slate-950 pointer-events-none"></div>
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-slate-950/60 to-slate-950 pointer-events-none"></div>
           
-          <div className="relative z-10 max-w-4xl mx-auto animate-[fadeIn_0.6s_ease-out]">
-            <div className="inline-flex items-center gap-2 px-4 py-2 mb-8 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-full text-xs md:text-sm font-black tracking-widest uppercase backdrop-blur-md">
-              ⚡ ยอดขายหลักพันชิ้นต่อวัน จัดการได้ในคลิกเดียว
+          <div className="relative z-10 max-w-4xl mx-auto animate-[fadeIn_0.8s_ease-out]">
+            <div className="inline-flex items-center gap-2 px-5 py-2.5 mb-8 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-full text-xs md:text-sm font-black tracking-widest uppercase backdrop-blur-md shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+              ⚡ เร็วกว่า. ประหยัดกว่า. จัดการได้ในคลิกเดียว
             </div>
             
             {/* 💥 ปรับขนาดพาดหัวให้ใหญ่ ชัด หนา ดึงดูดสายตาขั้นสุด */}
             <h1 className="text-5xl md:text-7xl font-black text-white mb-8 leading-[1.15] tracking-tight">
               สกัดแชทลูกค้าจ่าหน้า <br/>
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-indigo-400 to-emerald-400">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-indigo-400 to-emerald-400 drop-shadow-sm">
                 และแจ้งเลขพัสดุออโต้
               </span>
             </h1>
             
             <p className="text-lg md:text-2xl text-slate-300 mb-12 max-w-3xl mx-auto leading-relaxed font-medium">
-              ระบบแรกที่เชื่อมตรงกับ <strong className="text-blue-400 underline font-black">ไปรษณีย์ไทย (PostOne)</strong> ดึงที่อยู่ลูกค้าจากแชทเพจ Facebook มาสกัดและออกเลขจริงทันที พร้อมปุ่มสายฟ้ายิงเลขแทรคกิ้งกลับเข้า Messenger สายฟ้าแลบ!
+              ระบบแรกที่เชื่อมตรงกับ <strong className="text-blue-400 underline font-black">ไปรษณีย์ไทย (PostOne)</strong> ดึงที่อยู่ลูกค้าจากแชทเพจ Facebook มาสกัดและออกเลขจริงทันที พร้อมปุ่มสายฟ้ายิงเลขแทรคกิ้งกลับเข้า Messenger!
             </p>
             
-            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+            <div className="flex flex-col sm:flex-row gap-5 justify-center items-center">
               <button 
                 onClick={() => { setIsAuthView(true); setAuthMode('register'); }} 
-                className="btn-cute w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xl px-12 py-5 rounded-2xl font-black shadow-2xl shadow-blue-500/40 flex items-center justify-center gap-2"
+                className="btn-cute w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xl px-12 py-5 rounded-2xl font-black shadow-[0_0_30px_rgba(59,130,246,0.4)] flex items-center justify-center gap-3 border border-blue-400/30 group"
               >
-                🔥 เริ่มทดลองใช้ฟรี 50 ใบ
+                🚀 เริ่มต้นใช้งานฟรี 
+                <span className="group-hover:translate-x-1 transition-transform">👉</span>
               </button>
-              <div className="text-slate-400 text-sm font-bold flex items-center gap-2 mt-2 sm:mt-0">
-                <span>⭐️ ระบบพร้อมรันใน 1 นาที</span>
+              <div className="flex flex-col text-left">
+                <div className="text-slate-300 text-sm font-bold flex items-center gap-2">
+                  <span className="text-emerald-400">✓</span> ใช้ฟรี 5 จ่าหน้าทุกวัน
+                </div>
+                <div className="text-slate-400 text-xs font-medium flex items-center gap-2 mt-1">
+                  <span>⏳</span> สมัครเสร็จรันระบบได้ใน 1 นาที
+                </div>
               </div>
             </div>
           </div>
@@ -2115,71 +2167,73 @@ if (!user && !isAuthView) {
         </section>
 
         {/* 💳 4. โซนตารางราคาแพ็กเกจ (Pricing Section) */}
-        <section className="py-28 bg-slate-900/20 border-y border-slate-800/60 relative z-20">
-          <div className="max-w-6xl mx-auto px-6 text-center">
-            <h2 className="text-4xl md:text-6xl font-black mb-4 text-white">แพ็กเกจที่คุ้มค่าที่สุดในตลาด</h2>
-            <p className="text-slate-400 text-base md:text-lg mb-20 font-medium">ประหยัดเวลาพิมพ์มือวันละหลายชั่วโมง เลือกสเกลเครดิตที่ใช่สำหรับร้านคุณ</p>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left items-stretch">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left items-stretch">
               
-              {/* แพ็กเกจ Standard (200 บาท) */}
+              {/* แพ็กเกจ Starter */}
               <div className="bg-slate-900/50 backdrop-blur-md p-8 rounded-[2.5rem] shadow-xl border border-slate-800 card-hover flex flex-col justify-between">
                 <div>
                   <div className="mb-6">
-                    <p className="text-slate-500 font-black mb-2 tracking-widest uppercase text-xs">Standard</p>
-                    <p className="text-5xl font-black mb-2 text-white">฿200</p>
-                    <p className="text-blue-400 text-sm font-bold">ได้รับ 500 จ่าหน้า (เพียง 0.4 บ./ใบ)</p>
+                    <p className="text-slate-500 font-black mb-2 tracking-widest uppercase text-xs">Starter (ฟรีตลอดชีพ)</p>
+                    <p className="text-5xl font-black mb-2 text-white">฿0</p>
+                    <p className="text-emerald-400 text-sm font-bold">เหมาะสำหรับแม่ค้ามือใหม่</p>
                   </div>
                   <ul className="text-sm text-slate-400 mb-10 space-y-4 font-medium border-t border-slate-800 pt-6">
-                    <li className="flex items-center gap-2">✅ ระบบสกัดที่อยู่จากข้อความแชท</li>
-                    <li className="flex items-center gap-2">✅ ระบบจำจดลูกค้าเก่าอัตโนมัติ (CRM)</li>
+                    <li className="flex items-center gap-2 text-emerald-400 font-bold">🎁 ใช้ฟรี 5 จ่าหน้า / วัน</li>
+                    <li className="flex items-center gap-2">✅ สกัดที่อยู่จากข้อความแชทอัตโนมัติ</li>
+                    <li className="flex items-center gap-2">✅ ระบบจำลูกค้าเก่าอัตโนมัติ (CRM)</li>
                     <li className="flex items-center gap-2">✅ ออกเลข EMS ของไปรษณีย์ไทย</li>
-                    <li className="flex items-center gap-2">✅ ระบบพิมพ์ซ้ำและประวัติสถิติพื้นฐาน</li>
                   </ul>
                 </div>
-                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-2xl border-2 border-slate-700 text-slate-300 font-bold bg-slate-800/40 hover:bg-slate-800">สมัครเริ่มใช้งาน</button>
+                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-2xl border-2 border-slate-700 text-slate-300 font-bold bg-slate-800/40 hover:bg-slate-800">เริ่มใช้งานฟรี</button>
               </div>
 
-              {/* 🔥 แพ็กเกจ Ultimate Automation (พระเอกสูงสุด 1,000 บาท) */}
+              {/* 🔥 แพ็กเกจ Pay-As-You-Go */}
               <div className="bg-slate-900/90 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-2xl border-4 border-blue-500 relative overflow-hidden card-hover transform md:-translate-y-6 flex flex-col justify-between text-white">
-                <div className="absolute top-0 right-0 bg-blue-500 text-white px-6 py-2 font-black text-xs rounded-bl-2xl uppercase tracking-widest animate-pulse">ยอดฮิตแนะนำ ⭐</div>
+                <div className="absolute top-0 right-0 bg-blue-500 text-white px-6 py-2 font-black text-xs rounded-bl-2xl uppercase tracking-widest animate-pulse">ยอดฮิต 🔥</div>
                 <div>
                   <div className="mb-6">
-                    <p className="text-blue-400 font-black mb-2 tracking-widest uppercase text-xs">Ultimate Automation</p>
-                    <p className="text-6xl font-black mb-2 text-white">฿1,000</p>
-                    <p className="text-emerald-400 text-sm font-black">ได้รับ 5,000 จ่าหน้า (เหลือเพียง 0.2 บ./ใบ)</p>
+                    <p className="text-blue-400 font-black mb-2 tracking-widest uppercase text-xs">Pay-As-You-Go (ไม่มีวันหมดอายุ)</p>
+                    <p className="text-5xl font-black mb-2 text-white">ขั้นต่ำ ฿100</p>
+                    <p className="text-blue-200 text-sm font-black mt-2">ใช้เท่าไหร่ จ่ายเท่านั้น! ยิ่งส่งเยอะ ยิ่งถูกลง</p>
+                  </div>
+                  <div className="bg-slate-800/50 p-4 rounded-xl mb-6">
+                    <div className="text-xs space-y-2 font-mono">
+                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 1 - 5</span><span className="text-emerald-400 font-bold">ฟรี</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 6 - 20</span><span className="text-white">฿0.40 / ใบ</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 21 - 50</span><span className="text-white">฿0.30 / ใบ</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 51 - 100</span><span className="text-white">฿0.25 / ใบ</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 101 - 200</span><span className="text-white">฿0.20 / ใบ</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 201 - 500</span><span className="text-white">฿0.15 / ใบ</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 501 ขึ้นไป</span><span className="text-blue-400 font-bold">฿0.10 / ใบ</span></div>
+                    </div>
                   </div>
                   <ul className="text-sm text-slate-300 mb-10 space-y-4 font-medium border-t border-slate-800 pt-6">
-                    <li className="flex items-center gap-3 text-blue-300 font-bold">🚀 เชื่อม API ไปรษณีย์ไทย (PostOne)</li>
-                    <li className="flex items-center gap-3 text-indigo-300 font-bold">⚡ ปุ่มสายฟ้ายิงแจ้งเลขพัสดุเข้าแชทอัตโนมัติ 5,000 ครั้ง</li>
-                    <li className="flex items-center gap-3 text-emerald-300 font-bold">🤖 ดูดแชท Facebook Page ฟรี 30 วัน</li>
-                    <li className="flex items-center gap-3">✅ แดชบอร์ดคัดแยกสถิติพนักงานรายบุคคล</li>
-                    <li className="flex items-center gap-3">✅ ระบบจัดการบัญชียอดขาย และดาวโหลดรายงาน (CSV)</li>
+                    <li className="flex items-center gap-3">✅ ได้ฟีเจอร์เหมือน Starter ทุกอย่าง</li>
+                    <li className="flex items-center gap-3">✅ หน้าแดชบอร์ดสรุปสถิติมุมมองรวมเถ้าแก่</li>
+                    <li className="flex items-center gap-3">✅ ดาวน์โหลดไฟล์ Excel ทำรายงานส่งสถิติ</li>
                   </ul>
                 </div>
-                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black shadow-xl shadow-blue-500/40">อัปเกรดเป็นระดับโปร</button>
+                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black shadow-xl shadow-blue-500/40">เติมเงินเริ่มใช้งาน</button>
               </div>
 
-              {/* แพ็กเกจ Popular (500 บาท) */}
+              {/* แพ็กเกจ Ultimate Automation */}
               <div className="bg-slate-900/50 backdrop-blur-md p-8 rounded-[2.5rem] shadow-xl border border-slate-800 card-hover flex flex-col justify-between">
                 <div>
                   <div className="mb-6">
-                    <p className="text-slate-500 font-black mb-2 tracking-widest uppercase text-xs">Popular</p>
-                    <p className="text-5xl font-black mb-2 text-white">฿500</p>
-                    <p className="text-indigo-400 text-sm font-bold">ได้รับ 2,000 จ่าหน้า (เพียง 0.25 บ./ใบ)</p>
+                    <p className="text-slate-500 font-black mb-2 tracking-widest uppercase text-xs">Ultimate Automation</p>
+                    <p className="text-5xl font-black mb-2 text-white">฿1,000<span className="text-xl text-slate-500 font-normal">/ด.</span></p>
+                    <p className="text-indigo-400 text-sm font-bold">ปลดล็อกทุกขีดจำกัด ทำงานอัตโนมัติ 100%</p>
                   </div>
                   <ul className="text-sm text-slate-400 mb-10 space-y-4 font-medium border-t border-slate-800 pt-6">
-                    <li className="flex items-center gap-2">✅ ระบบสกัดที่อยู่จากข้อความแชท</li>
-                    <li className="flex items-center gap-2">✅ ระบบจำจดลูกค้าเก่าอัตโนมัติ (CRM)</li>
-                    <li className="flex items-center gap-2">✅ ดาวน์โหลดไฟล์ Excel ทำรายงานส่งสถิติ</li>
-                    <li className="flex items-center gap-2">✅ หน้าแดชบอร์ดสรุปสถิติมุมมองรวมเถ้าแก่</li>
+                    <li className="flex items-center gap-2 text-white font-bold">♾️ จ่าหน้าไม่จำกัด (Unlimited)</li>
+                    <li className="flex items-center gap-2">🚀 ดูดแชท Facebook Page ฟรี 30 วัน</li>
+                    <li className="flex items-center gap-2">⚡ ปุ่มสายฟ้ายิงแจ้งเลขพัสดุเข้าแชทอัตโนมัติ</li>
+                    <li className="flex items-center gap-2">👥 แดชบอร์ดคัดแยกสถิติพนักงานรายบุคคล</li>
                   </ul>
                 </div>
-                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-2xl border-2 border-indigo-500/40 text-indigo-400 font-bold bg-slate-800/20 hover:bg-slate-800">เลือกแพ็กเกจนี้</button>
+                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-2xl border-2 border-indigo-500/40 text-indigo-400 font-bold bg-slate-800/20 hover:bg-slate-800">สมัครแพ็กเกจโปร</button>
               </div>
             </div>
-          </div>
-        </section>
 
         {/* 📞 5. โซนปิดการขายและกล่องช่องทางติดต่อ (Call to Action) */}
         <section className="py-24 text-center relative px-6 z-20">
@@ -2970,18 +3024,34 @@ if (!user && isAuthView) {
         {['Owner', 'Admin'].includes(userRole) && (
           <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl border border-blue-100 shadow-inner gap-4">
             
-            {/* กล่องโควต้า (ปรับให้ขยายเต็มจอบนมือถือ) */}
-            <div className="font-black text-indigo-700 bg-white px-4 md:px-5 py-2.5 rounded-xl shadow-sm flex items-center justify-between md:justify-start gap-3 border border-indigo-50 w-full md:w-auto">
-              <div className="flex items-center gap-2 whitespace-nowrap">
-                <span>🎫</span> 
-                <span className="hidden sm:inline">โควต้าคงเหลือ:</span>
-                <span className={`text-lg md:text-xl ${quota <= 5 ? 'text-rose-500 animate-pulse' : 'text-indigo-900'}`}>
-                  {quota} <span className="text-xs md:text-sm font-bold text-indigo-400">ใบ</span>
-                </span>
+            {/* กล่องแสดงกระเป๋าเงิน (Balance) & ยอดพิมพ์วันนี้ */}
+            <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+              {/* ยอดเงินคงเหลือ */}
+              <div className="font-black text-emerald-700 bg-white px-4 md:px-5 py-2.5 rounded-xl shadow-sm flex items-center justify-between gap-3 border border-emerald-50">
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                  <span>💰</span> 
+                  <span className="hidden sm:inline text-emerald-600/70 text-sm">กระเป๋าเงิน:</span>
+                  <span className={`text-lg md:text-xl ${balance <= 50 && storeProfile?.plan !== 'Premium' ? 'text-rose-500 animate-pulse' : 'text-emerald-700'}`}>
+                    {storeProfile?.plan === 'Premium' ? '∞' : `฿${balance.toFixed(2)}`}
+                  </span>
+                </div>
+                {storeProfile?.plan !== 'Premium' && (
+                  <button onClick={() => setIsTopupOpen(true)} className="btn-cute ml-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-xs shadow-md shadow-emerald-500/30 whitespace-nowrap">
+                    ➕ เติมเงิน
+                  </button>
+                )}
               </div>
-              <button onClick={() => setIsTopupOpen(true)} className="btn-cute ml-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-1.5 rounded-lg text-xs shadow-md shadow-indigo-500/30 whitespace-nowrap flex-shrink-0">
-                ➕ เติมโควต้า
-              </button>
+              
+              {/* สถิติการพิมพ์วันนี้ */}
+              <div className="font-black text-indigo-700 bg-indigo-50 px-4 md:px-5 py-2.5 rounded-xl flex items-center gap-2 border border-indigo-100 shadow-inner">
+                <span className="text-xl">📦</span>
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-indigo-500 uppercase tracking-wider leading-none">วันนี้พิมพ์ไปแล้ว</span>
+                  <span className="text-base leading-tight">
+                    {lastPrintDate === getThaiDateString() ? dailyPrintedCount : 0} <span className="text-xs text-indigo-400">ใบ</span>
+                  </span>
+                </div>
+              </div>
             </div>
             
             {/* 🛑 โซนที่ 2: ปุ่มจัดการระบบของเถ้าแก่ (Owner) */}
