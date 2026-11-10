@@ -21,6 +21,20 @@ import { getToken, onMessage } from "firebase/messaging";*/}
 
 const FacebookLogin = FacebookLoginRaw.default?.default || FacebookLoginRaw.default || FacebookLoginRaw;
 
+// 🔐 เรียก API ฝั่งเซิร์ฟเวอร์ (แนบ Firebase ID Token ให้เซิร์ฟเวอร์ตรวจสิทธิ์)
+const callApi = async (path, body) => {
+  const idToken = await auth.currentUser?.getIdToken();
+  if (!idToken) throw new Error('กรุณาเข้าสู่ระบบใหม่');
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `เกิดข้อผิดพลาด (${res.status})`);
+  return data;
+};
+
 // 🔥 สมองกล Advanced Parser ตัวเทพ
 const extractOrderData = (rawText) => {
   if (!rawText) return null;
@@ -133,6 +147,442 @@ const calculatePrintCost = (currentDailyCount, addCount) => {
 
 const COLORS = ['#22c55e', '#f97316'];
 
+// ภาพประกอบต้นฉบับ (วาดด้วย SVG): ออฟฟิศ กล่องพัสดุรอทำจ่าหน้า พนักงานหญิงกำลังพิมพ์จ่าหน้าจากเครื่องพิมพ์
+const OfficeScene = () => (
+  <svg viewBox="0 0 640 480" role="img" aria-label="ภาพประกอบออฟฟิศ พนักงานหญิงกำลังพิมพ์ใบจ่าหน้าพัสดุ มีกล่องพัสดุวางรออยู่ข้างโต๊ะ" className="w-full h-auto">
+    <defs>
+      <linearGradient id="sl-sky" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stopColor="#BFE3FF" /><stop offset="1" stopColor="#EAF6FF" />
+      </linearGradient>
+      <linearGradient id="sl-wall" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stopColor="#F4F8FD" /><stop offset="1" stopColor="#E3ECF7" />
+      </linearGradient>
+      <linearGradient id="sl-screen" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stopColor="#12264D" /><stop offset="1" stopColor="#0B1730" />
+      </linearGradient>
+    </defs>
+
+    {/* ผนังและพื้น */}
+    <rect width="640" height="480" fill="url(#sl-wall)" />
+    <rect y="372" width="640" height="108" fill="#E2CFAE" />
+    <rect y="366" width="640" height="8" fill="#F8FAFC" />
+    <g stroke="#D3BD96" strokeWidth="2">
+      <line x1="0" y1="405" x2="640" y2="405" /><line x1="0" y1="440" x2="640" y2="440" />
+      <line x1="120" y1="374" x2="90" y2="480" /><line x1="330" y1="374" x2="320" y2="480" /><line x1="520" y1="374" x2="545" y2="480" />
+    </g>
+
+    {/* หน้าต่าง */}
+    <rect x="28" y="40" width="176" height="148" rx="8" fill="#FFFFFF" />
+    <rect x="38" y="50" width="156" height="128" rx="4" fill="url(#sl-sky)" />
+    <circle cx="160" cy="84" r="14" fill="#FFE9A8" />
+    <ellipse cx="90" cy="82" rx="22" ry="8" fill="#FFFFFF" opacity=".9" />
+    <ellipse cx="108" cy="76" rx="14" ry="7" fill="#FFFFFF" opacity=".9" />
+    <path d="M38 178 V138 h20 v-18 h18 v28 h16 v-40 h22 v30 h18 v-14 h24 v54 Z" fill="#B9D0E8" />
+    <rect x="114" y="50" width="4" height="128" fill="#FFFFFF" />
+    <rect x="38" y="112" width="156" height="4" fill="#FFFFFF" />
+
+    {/* ชั้นวางของ + กล่องเล็ก */}
+    <rect x="236" y="150" width="150" height="6" rx="3" fill="#B08A5B" />
+    <rect x="246" y="156" width="6" height="12" fill="#9A7549" /><rect x="370" y="156" width="6" height="12" fill="#9A7549" />
+    <rect x="248" y="116" width="40" height="34" rx="2" fill="#D4A56A" /><rect x="264" y="116" width="8" height="34" fill="#E9C592" />
+    <rect x="292" y="126" width="34" height="24" rx="2" fill="#C8975A" /><rect x="306" y="126" width="6" height="24" fill="#E9C592" />
+    <rect x="332" y="110" width="44" height="40" rx="2" fill="#E0B27A" /><rect x="350" y="110" width="8" height="40" fill="#F1D3A6" />
+
+    {/* จอแดชบอร์ดสถิติบนผนัง */}
+    <rect x="410" y="36" width="214" height="136" rx="12" fill="#1F2A44" />
+    <rect x="416" y="42" width="202" height="124" rx="8" fill="url(#sl-screen)" />
+    <text x="428" y="60" fill="#9FB6DC" fontSize="10.5" fontFamily="system-ui, sans-serif" fontWeight="700">SmartLabel · สถิติการใช้งาน</text>
+    <g>
+      <rect x="430" y="126" width="16" height="28" rx="3" fill="#3B82F6" />
+      <rect x="454" y="108" width="16" height="46" rx="3" fill="#3B82F6" />
+      <rect x="478" y="116" width="16" height="38" rx="3" fill="#3B82F6" />
+      <rect x="502" y="92" width="16" height="62" rx="3" fill="#10B981" />
+      <rect x="526" y="100" width="16" height="54" rx="3" fill="#3B82F6" />
+      <rect x="550" y="78" width="16" height="76" rx="3" fill="#10B981" />
+      <rect x="574" y="86" width="16" height="68" rx="3" fill="#3B82F6" />
+    </g>
+    <polyline points="438,120 462,106 486,112 510,90 534,98 558,80 582,86" fill="none" stroke="#FDE68A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    <circle cx="558" cy="80" r="4" fill="#FDE68A" />
+
+    {/* กองกล่องพัสดุรอทำจ่าหน้า */}
+    <ellipse cx="112" cy="428" rx="104" ry="10" fill="#000" opacity=".08" />
+    <g>
+      <rect x="30" y="364" width="88" height="64" rx="3" fill="#C8975A" />
+      <rect x="66" y="364" width="14" height="64" fill="#E3BE86" />
+      <rect x="38" y="384" width="26" height="30" rx="2" fill="#FFFFFF" />
+      <g stroke="#94A3B8" strokeWidth="2"><line x1="42" y1="390" x2="60" y2="390" /><line x1="42" y1="395" x2="56" y2="395" /></g>
+      <g stroke="#0F172A" strokeWidth="1.5"><line x1="42" y1="402" x2="42" y2="410" /><line x1="45" y1="402" x2="45" y2="410" /><line x1="49" y1="402" x2="49" y2="410" /><line x1="52" y1="402" x2="52" y2="410" /><line x1="56" y1="402" x2="56" y2="410" /></g>
+    </g>
+    <g>
+      <rect x="122" y="378" width="72" height="50" rx="3" fill="#D6A767" />
+      <rect x="150" y="378" width="12" height="50" fill="#EBCB98" />
+      <rect x="168" y="396" width="20" height="22" rx="2" fill="#FFFFFF" />
+      <g stroke="#94A3B8" strokeWidth="2"><line x1="171" y1="401" x2="185" y2="401" /><line x1="171" y1="406" x2="182" y2="406" /></g>
+    </g>
+    <g>
+      <rect x="46" y="316" width="70" height="48" rx="3" fill="#E0B27A" />
+      <rect x="73" y="316" width="12" height="48" fill="#F2D6A8" />
+      <rect x="90" y="330" width="22" height="26" rx="2" fill="#FFFFFF" />
+      <g stroke="#94A3B8" strokeWidth="2"><line x1="93" y1="336" x2="108" y2="336" /><line x1="93" y1="341" x2="105" y2="341" /></g>
+    </g>
+
+    {/* โต๊ะทำงาน */}
+    <ellipse cx="410" cy="418" rx="226" ry="10" fill="#000" opacity=".08" />
+    <rect x="204" y="344" width="412" height="64" rx="4" fill="#6F4A2F" />
+    <rect x="214" y="354" width="120" height="44" rx="3" fill="#7E5737" />
+    <rect x="262" y="372" width="24" height="5" rx="2" fill="#D9B98F" />
+    <rect x="190" y="330" width="440" height="16" rx="5" fill="#A8744A" />
+
+    {/* เก้าอี้ */}
+    <rect x="320" y="214" width="130" height="150" rx="26" fill="#334155" />
+
+    {/* พนักงานหญิง (ภาพเฟลตสไตล์ เป็นมิตร) */}
+    <path d="M356 192 Q348 138 386 136 Q424 138 416 192 Q424 236 404 244 L368 244 Q348 236 356 192 Z" fill="#2B1B17" />
+    <rect x="377" y="208" width="18" height="22" rx="6" fill="#EBB794" />
+    <path d="M336 332 L338 262 Q340 240 364 234 L408 234 Q432 240 434 262 L436 332 Z" fill="#1E3A8A" />
+    <path d="M370 234 L386 266 L402 234 Z" fill="#FFFFFF" />
+    <path d="M364 234 L386 270 L378 236 Z" fill="#17306F" /><path d="M408 234 L386 270 L394 236 Z" fill="#17306F" />
+    <ellipse cx="386" cy="188" rx="27" ry="31" fill="#F3C7A5" />
+    <path d="M358 182 Q360 150 386 150 Q412 150 414 182 Q398 164 386 166 Q372 164 358 182 Z" fill="#2B1B17" />
+    <circle cx="386" cy="134" r="14" fill="#2B1B17" />
+    <circle cx="375" cy="190" r="2.6" fill="#2B1B17" /><circle cx="397" cy="190" r="2.6" fill="#2B1B17" />
+    <path d="M370 183 Q375 180 380 183 M392 183 Q397 180 402 183" stroke="#2B1B17" strokeWidth="1.6" strokeLinecap="round" fill="none" />
+    <path d="M377 203 Q386 211 395 203" stroke="#B4532A" strokeWidth="2.2" strokeLinecap="round" fill="none" />
+    <circle cx="368" cy="199" r="4.5" fill="#F29A8E" opacity=".35" /><circle cx="404" cy="199" r="4.5" fill="#F29A8E" opacity=".35" />
+    <circle cx="359" cy="196" r="2.2" fill="#FBBF24" /><circle cx="413" cy="196" r="2.2" fill="#FBBF24" />
+    {/* แขนซ้าย (บนโน้ตบุ๊ก) และแขนขวา (ยื่นไปหยิบใบจ่าหน้า) */}
+    <path d="M344 262 L330 304 L344 326" stroke="#1E3A8A" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    <circle cx="346" cy="328" r="9" fill="#F3C7A5" />
+    <path d="M428 262 L454 304 L486 290" stroke="#1E3A8A" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+
+    {/* โน้ตบุ๊ก (ด้านหลังจอ) */}
+    <rect x="246" y="326" width="108" height="6" rx="3" fill="#94A3B8" />
+    <rect x="256" y="268" width="88" height="60" rx="5" fill="#CBD5E1" stroke="#94A3B8" strokeWidth="2" />
+    <rect x="288" y="290" width="24" height="16" rx="4" fill="#64748B" />
+    <text x="300" y="302" textAnchor="middle" fill="#F8FAFC" fontSize="9" fontWeight="800" fontFamily="system-ui, sans-serif">SL</text>
+
+    {/* เครื่องพิมพ์ใบจ่าหน้า + แถบใบจ่าหน้าที่พิมพ์ออกมา */}
+    <g className="sl-label">
+      <g transform="rotate(-5 512 270)">
+        <rect x="494" y="228" width="40" height="72" rx="3" fill="#FFFFFF" stroke="#CBD5E1" />
+        <rect x="500" y="236" width="18" height="6" rx="1" fill="#2563EB" />
+        <g stroke="#94A3B8" strokeWidth="2"><line x1="500" y1="248" x2="528" y2="248" /><line x1="500" y1="254" x2="523" y2="254" /></g>
+        <g stroke="#0F172A" strokeWidth="1.6">
+          <line x1="500" y1="266" x2="500" y2="284" /><line x1="503" y1="266" x2="503" y2="284" /><line x1="507" y1="266" x2="507" y2="284" />
+          <line x1="510" y1="266" x2="510" y2="284" /><line x1="514" y1="266" x2="514" y2="284" /><line x1="518" y1="266" x2="518" y2="284" />
+          <line x1="521" y1="266" x2="521" y2="284" /><line x1="525" y1="266" x2="525" y2="284" /><line x1="528" y1="266" x2="528" y2="284" />
+        </g>
+      </g>
+    </g>
+    <rect x="474" y="296" width="92" height="36" rx="9" fill="#F8FAFC" stroke="#CBD5E1" strokeWidth="2" />
+    <rect x="470" y="288" width="100" height="14" rx="7" fill="#94A3B8" />
+    <rect x="490" y="291" width="60" height="5" rx="2.5" fill="#0F172A" />
+    <circle cx="552" cy="316" r="3.5" fill="#22C55E" />
+    <circle cx="490" cy="288" r="9" fill="#F3C7A5" />
+
+    {/* ต้นไม้ประดับ */}
+    <rect x="584" y="304" width="30" height="28" rx="4" fill="#E2E8F0" />
+    <path d="M599 306 Q580 280 586 262 Q598 276 599 306 Z" fill="#34D399" />
+    <path d="M599 306 Q612 276 626 270 Q620 292 599 306 Z" fill="#10B981" />
+    <path d="M599 306 Q596 270 604 252 Q612 276 599 306 Z" fill="#059669" />
+  </svg>
+);
+// =====================================================================
+// 🏠 Landing Page ใหม่ของ SmartLabel (วางไว้เหนือ `export default function App()`)
+// ใช้ Tailwind class เดิมของโปรเจกต์ ไม่ต้องติดตั้งแพ็กเกจเพิ่ม
+// =====================================================================
+
+// ตัวเลขนับขึ้นนุ่ม ๆ (เคารพผู้ใช้ที่ตั้งค่าลดการเคลื่อนไหว)
+const useCountUp = (target, duration = 1200) => {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    if (typeof target !== 'number') return;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { setValue(target); return; }
+    let raf; const start = performance.now();
+    const tick = (now) => {
+      const p = Math.min(1, (now - start) / duration);
+      setValue(Math.round(target * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+  return value;
+};
+
+const StatCard = ({ icon, label, value, suffix = '' }) => {
+  const shown = useCountUp(typeof value === 'number' ? value : null);
+  return (
+    <div className="bg-white/80 backdrop-blur rounded-3xl border border-slate-200 shadow-sm px-6 py-7 text-center">
+      <div className="text-3xl mb-2" aria-hidden="true">{icon}</div>
+      <div className="text-4xl md:text-5xl font-black text-slate-900 tabular-nums">
+        {typeof value === 'number' ? shown.toLocaleString('th-TH') : '—'}
+        {typeof value === 'number' && suffix && <span className="text-2xl text-blue-600">{suffix}</span>}
+      </div>
+      <div className="text-sm font-bold text-slate-500 mt-2">{label}</div>
+    </div>
+  );
+};
+
+const LandingPage = ({ onLogin, onRegister, onPartner }) => {
+  // 📊 สถิติจริงจากเซิร์ฟเวอร์ (api/stats.js) ส่งกลับเฉพาะตัวเลขรวม ไม่มีข้อมูลลูกค้า
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/stats')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d && typeof d.orders === 'number') setStats(d); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const steps = [
+    { n: '1', icon: '💬', title: 'วางข้อความแชทลูกค้า', desc: 'คัดลอกจาก Messenger / LINE มาวาง หรือดูดแชทเข้า Smart Inbox อัตโนมัติ' },
+    { n: '2', icon: '🧠', title: 'ระบบสกัดที่อยู่ให้เอง', desc: 'แยกชื่อ เบอร์โทร ที่อยู่ รหัสไปรษณีย์ และยอด COD พร้อมจำลูกค้าเก่า' },
+    { n: '3', icon: '🖨️', title: 'พิมพ์ใบจ่าหน้าได้ทันที', desc: 'ออกเลขพัสดุไปรษณีย์ไทย พิมพ์ผ่านเครื่องพิมพ์ความร้อน แล้วแจ้งเลขพัสดุเข้าแชท' },
+  ];
+  const features = [
+    { icon: '📡', title: 'เชื่อมไปรษณีย์ไทย', desc: 'ออกเลขพัสดุและส่งข้อมูลเข้าระบบไปรษณีย์ไทยโดยตรง ไม่ต้องคีย์ซ้ำ' },
+    { icon: '⚡', title: 'แจ้งเลขพัสดุอัตโนมัติ', desc: 'กดปุ่มเดียวส่งเลขพัสดุและลิงก์ติดตามเข้า Messenger ของลูกค้า' },
+    { icon: '🤖', title: 'Smart Inbox', desc: 'ดูดแชทจากเพจ Facebook สกัดข้อมูลจ่าหน้าให้ครบก่อนพิมพ์' },
+    { icon: '👥', title: 'จัดการพนักงาน', desc: 'แยกสิทธิ์เจ้าของ แอดมิน พนักงาน และดูสถิติรายบุคคล' },
+    { icon: '📈', title: 'แดชบอร์ดสถิติ', desc: 'ดูจำนวนออเดอร์ COD/โอน รายวัน และดาวน์โหลด Excel ทำรายงาน' },
+    { icon: '🖨️', title: 'รองรับเครื่องพิมพ์ความร้อน', desc: 'พิมพ์ผ่าน Bluetooth / USB หรือเบราว์เซอร์ ขนาด 58mm และ 80mm' },
+  ];
+  const tiers = [
+    ['ใบที่ 1 - 5', 'ฟรี'], ['ใบที่ 6 - 20', '฿0.40 / ใบ'], ['ใบที่ 21 - 50', '฿0.30 / ใบ'],
+    ['ใบที่ 51 - 100', '฿0.25 / ใบ'], ['ใบที่ 101 - 200', '฿0.20 / ใบ'], ['ใบที่ 201 - 500', '฿0.15 / ใบ'],
+    ['ใบที่ 501 ขึ้นไป', '฿0.10 / ใบ'],
+  ];
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 overflow-x-hidden selection:bg-blue-200">
+      <style>{`
+        @keyframes sl-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes sl-print { 0%,100% { transform: translateY(8px); opacity: .0; } 18%,82% { transform: translateY(0); opacity: 1; } }
+        @keyframes sl-rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+        .sl-float { animation: sl-float 5s ease-in-out infinite; }
+        .sl-float-2 { animation: sl-float 6s ease-in-out -2s infinite; }
+        .sl-label { animation: sl-print 4.5s ease-in-out infinite; }
+        .sl-rise { animation: sl-rise .7s cubic-bezier(.16,1,.3,1) both; }
+        .sl-btn { transition: transform .25s cubic-bezier(.16,1,.3,1), box-shadow .25s; }
+        .sl-btn:hover { transform: translateY(-2px); }
+        .sl-card { transition: transform .35s cubic-bezier(.16,1,.3,1), box-shadow .35s; }
+        .sl-card:hover { transform: translateY(-6px); box-shadow: 0 24px 40px -18px rgba(37,99,235,.35); }
+        @media (prefers-reduced-motion: reduce) { .sl-float,.sl-float-2,.sl-label,.sl-rise { animation: none !important; } .sl-card:hover,.sl-btn:hover { transform: none; } }
+      `}</style>
+
+      {/* 🧭 แถบนำทาง */}
+      <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200">
+        <div className="max-w-7xl mx-auto flex items-center justify-between px-5 md:px-10 py-4">
+          <div className="flex items-center gap-2 text-2xl font-black text-slate-900">
+            <span className="grid place-items-center w-9 h-9 rounded-xl bg-blue-600 text-white text-lg" aria-hidden="true">📦</span>
+            Smart<span className="text-blue-600">Label</span>
+          </div>
+          <div className="hidden md:flex items-center gap-8 text-sm font-bold text-slate-600">
+            <a href="#how" className="hover:text-blue-600">วิธีใช้งาน</a>
+            <a href="#features" className="hover:text-blue-600">ฟีเจอร์</a>
+            <a href="#pricing" className="hover:text-blue-600">ราคา</a>
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={onLogin} className="sl-btn px-5 py-2.5 rounded-xl text-sm font-black text-slate-700 hover:bg-slate-100">เข้าสู่ระบบ</button>
+            <button onClick={onRegister} className="sl-btn px-5 py-2.5 rounded-xl text-sm font-black text-white bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-600/25">สมัครฟรี</button>
+          </div>
+        </div>
+      </nav>
+
+      {/* 🚀 ฮีโร่ */}
+      <header className="relative overflow-hidden bg-gradient-to-b from-sky-100 via-blue-50 to-slate-50">
+        <div className="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-blue-300/30 blur-3xl" aria-hidden="true" />
+        <div className="absolute top-40 -left-24 w-80 h-80 rounded-full bg-emerald-200/40 blur-3xl" aria-hidden="true" />
+        <div className="relative max-w-7xl mx-auto grid lg:grid-cols-2 gap-10 items-center px-5 md:px-10 pt-14 pb-20 lg:pt-20 lg:pb-28">
+          <div className="sl-rise">
+            <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-blue-100 text-blue-700 text-xs md:text-sm font-black shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" /> โปรแกรมสร้างใบจ่าหน้าพัสดุสำหรับแม่ค้าออนไลน์
+            </span>
+            <h1 className="mt-6 text-4xl md:text-6xl font-black text-slate-900 leading-[1.15] tracking-tight">
+              แชทลูกค้า กลายเป็น<br />
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500">ใบจ่าหน้าพร้อมส่ง</span> ในไม่กี่วินาที
+            </h1>
+            <p className="mt-6 text-lg md:text-xl text-slate-600 leading-relaxed max-w-xl">
+              วางข้อความแชท ระบบสกัดที่อยู่ ออกเลขพัสดุไปรษณีย์ไทย พิมพ์ใบจ่าหน้าจากเครื่องพิมพ์ความร้อน
+              แล้วแจ้งเลขพัสดุให้ลูกค้าอัตโนมัติ พร้อมสถิติการใช้งานครบในที่เดียว
+            </p>
+            <div className="mt-9 flex flex-col sm:flex-row gap-4 sm:items-center">
+              <button onClick={onRegister} className="sl-btn px-9 py-4 rounded-2xl text-lg font-black text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-xl shadow-blue-600/30">
+                🚀 เริ่มต้นใช้งานฟรี
+              </button>
+              <button onClick={onLogin} className="sl-btn px-9 py-4 rounded-2xl text-lg font-black text-slate-700 bg-white border border-slate-200 hover:border-blue-300">
+                เข้าสู่ระบบร้านค้า
+              </button>
+            </div>
+            <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm font-bold text-slate-600">
+              <li><span className="text-emerald-500">✓</span> ใช้ฟรี 5 จ่าหน้าทุกวัน</li>
+              <li><span className="text-emerald-500">✓</span> สมัครเสร็จใน 1 นาที</li>
+              <li><span className="text-emerald-500">✓</span> ไม่ต้องผูกบัตรเครดิต</li>
+            </ul>
+          </div>
+
+          <div className="relative sl-rise" style={{ animationDelay: '.15s' }}>
+            <div className="rounded-[2rem] overflow-hidden border border-white shadow-2xl shadow-blue-900/15 bg-white">
+              <OfficeScene />
+            </div>
+            {/* การ์ดลอย: สถิติวันนี้ */}
+            <div className="sl-float absolute -left-3 md:-left-8 bottom-10 bg-white rounded-2xl shadow-xl border border-slate-100 px-4 py-3 flex items-center gap-3">
+              <span className="grid place-items-center w-10 h-10 rounded-xl bg-emerald-100 text-xl" aria-hidden="true">🖨️</span>
+              <div>
+                <div className="text-[11px] font-bold text-slate-500">พิมพ์วันนี้</div>
+                <div className="text-lg font-black text-slate-900 tabular-nums">
+                  {stats && typeof stats.today === 'number' ? `${stats.today.toLocaleString('th-TH')} ใบ` : 'ใบจ่าหน้า'}
+                </div>
+              </div>
+            </div>
+            {/* การ์ดลอย: ส่งเลขพัสดุสำเร็จ */}
+            <div className="sl-float-2 absolute -right-2 md:-right-6 top-8 bg-white rounded-2xl shadow-xl border border-slate-100 px-4 py-3 flex items-center gap-3">
+              <span className="grid place-items-center w-10 h-10 rounded-xl bg-blue-100 text-xl" aria-hidden="true">⚡</span>
+              <div>
+                <div className="text-[11px] font-bold text-slate-500">แจ้งเลขพัสดุเข้าแชท</div>
+                <div className="text-sm font-black text-emerald-600">ส่งสำเร็จ ✓</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* 📊 สถิติการใช้งานจริง (แสดงเมื่อโหลดสำเร็จเท่านั้น) */}
+      {stats && (
+        <section aria-label="สถิติการใช้งาน" className="relative -mt-10 z-10 px-5 md:px-10">
+          <div className="max-w-5xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <StatCard icon="🏪" label="ร้านค้าที่ใช้งาน" value={stats.shops} />
+            <StatCard icon="📦" label="ใบจ่าหน้าที่สร้างแล้วทั้งหมด" value={stats.orders} />
+            <StatCard icon="🔥" label="สร้างในวันนี้" value={stats.today} />
+          </div>
+        </section>
+      )}
+
+      {/* 🧩 วิธีใช้งาน */}
+      <section id="how" className="max-w-6xl mx-auto px-5 md:px-10 py-24">
+        <div className="text-center mb-14">
+          <h2 className="text-3xl md:text-5xl font-black text-slate-900">ทำจ่าหน้าเสร็จใน 3 ขั้นตอน</h2>
+          <p className="mt-4 text-slate-500 font-medium">จากกองกล่องที่รอแพ็ก เป็นพัสดุพร้อมส่งภายในไม่กี่คลิก</p>
+        </div>
+        <div className="grid md:grid-cols-3 gap-6">
+          {steps.map((s) => (
+            <div key={s.n} className="sl-card relative bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
+              <span className="absolute -top-4 left-8 grid place-items-center w-9 h-9 rounded-full bg-blue-600 text-white font-black shadow-lg">{s.n}</span>
+              <div className="text-4xl mb-4" aria-hidden="true">{s.icon}</div>
+              <h3 className="text-xl font-black text-slate-900 mb-2">{s.title}</h3>
+              <p className="text-slate-500 leading-relaxed font-medium">{s.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 🌟 ฟีเจอร์ */}
+      <section id="features" className="bg-slate-900 text-white py-24 px-5 md:px-10">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl md:text-5xl font-black">ทุกอย่างที่ร้านออนไลน์ต้องใช้</h2>
+            <p className="mt-4 text-slate-400 font-medium">เปลี่ยนโต๊ะแพ็กของให้เป็นสำนักงานที่ทำงานเป็นระบบ</p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {features.map((f) => (
+              <div key={f.title} className="sl-card bg-slate-800/60 border border-slate-700 rounded-3xl p-7">
+                <div className="text-3xl mb-3" aria-hidden="true">{f.icon}</div>
+                <h3 className="text-lg font-black mb-2">{f.title}</h3>
+                <p className="text-slate-400 text-sm leading-relaxed font-medium">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 💳 ราคา */}
+      <section id="pricing" className="max-w-6xl mx-auto px-5 md:px-10 py-24">
+        <div className="text-center mb-14">
+          <h2 className="text-3xl md:text-5xl font-black text-slate-900">ราคาโปร่งใส ใช้เท่าไหร่จ่ายเท่านั้น</h2>
+          <p className="mt-4 text-slate-500 font-medium">ยิ่งพิมพ์เยอะ ยิ่งถูกลงตามขั้นบันได</p>
+        </div>
+        <div className="grid md:grid-cols-3 gap-6 items-stretch">
+          <div className="sl-card bg-white rounded-[2rem] border border-slate-200 p-8 flex flex-col justify-between shadow-sm">
+            <div>
+              <p className="text-xs font-black tracking-widest uppercase text-slate-400">Starter (ฟรีตลอดชีพ)</p>
+              <p className="text-5xl font-black text-slate-900 mt-2">฿0</p>
+              <p className="text-emerald-600 text-sm font-bold mt-1">เหมาะสำหรับแม่ค้ามือใหม่</p>
+              <ul className="mt-6 pt-6 border-t border-slate-100 space-y-3 text-sm font-medium text-slate-600">
+                <li className="font-bold text-emerald-600">🎁 ใช้ฟรี 5 จ่าหน้า / วัน</li>
+                <li>✅ สกัดที่อยู่จากแชทอัตโนมัติ</li>
+                <li>✅ ระบบจำลูกค้าเก่า (CRM)</li>
+                <li>✅ ออกเลข EMS ไปรษณีย์ไทย</li>
+              </ul>
+            </div>
+            <button onClick={onRegister} className="sl-btn mt-8 w-full py-4 rounded-2xl border-2 border-slate-200 font-black text-slate-700 hover:border-blue-300">สมัครฟรี</button>
+          </div>
+
+          <div className="sl-card relative bg-white rounded-[2rem] border-4 border-blue-500 p-8 flex flex-col justify-between shadow-2xl shadow-blue-600/15 md:-translate-y-4">
+            <span className="absolute top-0 right-0 bg-blue-600 text-white text-xs font-black px-5 py-2 rounded-bl-2xl rounded-tr-[1.6rem]">ยอดฮิต 🔥</span>
+            <div>
+              <p className="text-xs font-black tracking-widest uppercase text-blue-600">Pay-As-You-Go (ไม่มีวันหมดอายุ)</p>
+              <p className="text-5xl font-black text-slate-900 mt-2">ขั้นต่ำ ฿100</p>
+              <div className="mt-5 bg-slate-50 rounded-2xl p-4 space-y-2 font-mono text-xs">
+                {tiers.map(([a, b]) => (
+                  <div key={a} className="flex justify-between"><span className="text-slate-500">{a}</span><span className={`font-bold ${b === 'ฟรี' ? 'text-emerald-600' : 'text-slate-800'}`}>{b}</span></div>
+                ))}
+              </div>
+              <ul className="mt-6 space-y-3 text-sm font-medium text-slate-600">
+                <li>✅ ได้ฟีเจอร์เหมือน Starter ทุกอย่าง</li>
+                <li>✅ แดชบอร์ดสรุปสถิติสำหรับเจ้าของร้าน</li>
+                <li>✅ ดาวน์โหลด Excel ทำรายงาน</li>
+              </ul>
+            </div>
+            <button onClick={onRegister} className="sl-btn mt-8 w-full py-5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black shadow-xl shadow-blue-600/25">เริ่มใช้งานเลย</button>
+          </div>
+
+          <div className="sl-card bg-white rounded-[2rem] border border-slate-200 p-8 flex flex-col justify-between shadow-sm">
+            <div>
+              <p className="text-xs font-black tracking-widest uppercase text-indigo-500">Ultimate Automation</p>
+              <p className="text-5xl font-black text-slate-900 mt-2">฿1,000<span className="text-xl font-medium text-slate-400"> /เดือน</span></p>
+              <p className="text-indigo-600 text-sm font-bold mt-1">ปลดล็อกทุกขีดจำกัด ทำงานอัตโนมัติ</p>
+              <ul className="mt-6 pt-6 border-t border-slate-100 space-y-3 text-sm font-medium text-slate-600">
+                <li className="font-bold text-slate-900">♾️ จ่าหน้าไม่จำกัด</li>
+                <li>🚀 ดูดแชท Facebook Page (Smart Inbox)</li>
+                <li>⚡ ปุ่มสายฟ้าแจ้งเลขพัสดุเข้าแชทอัตโนมัติ</li>
+                <li>👥 แดชบอร์ดสถิติพนักงานรายบุคคล</li>
+              </ul>
+            </div>
+            <button onClick={onRegister} className="sl-btn mt-8 w-full py-4 rounded-2xl border-2 border-indigo-200 font-black text-indigo-600 hover:bg-indigo-50">เลือกแพ็กเกจนี้</button>
+          </div>
+        </div>
+      </section>
+
+      {/* 📞 ติดต่อ */}
+      <section className="px-5 md:px-10 pb-24">
+        <div className="max-w-4xl mx-auto rounded-[2.5rem] bg-gradient-to-br from-blue-600 to-indigo-700 text-white text-center px-8 py-14 md:py-16 shadow-2xl shadow-blue-700/25">
+          <h2 className="text-3xl md:text-4xl font-black">พร้อมเปลี่ยนกองกล่องให้เป็นพัสดุพร้อมส่งหรือยัง?</h2>
+          <p className="mt-4 text-blue-100 font-medium">ทีมงาน ToppySmart พร้อมช่วยตั้งแต่เริ่มต้นใช้งาน</p>
+          <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
+            <button onClick={onRegister} className="sl-btn px-9 py-4 rounded-2xl bg-white text-blue-700 font-black">🚀 สมัครใช้งานฟรี</button>
+            <a href="https://qr-official.line.me/gs/M_057bbduq_GW.png?oat_content=qr" target="_blank" rel="noopener noreferrer" className="sl-btn px-9 py-4 rounded-2xl bg-[#06C755] text-white font-black">💬 สอบถามทาง LINE</a>
+          </div>
+        </div>
+      </section>
+
+      {/* 👣 ท้ายหน้า */}
+      <footer className="border-t border-slate-200 bg-white px-5 md:px-10 py-10">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row gap-4 md:items-center justify-between text-center md:text-left">
+          <div>
+            <div className="text-xl font-black text-slate-900">Smart<span className="text-blue-600">Label</span></div>
+            <p className="text-xs font-bold text-slate-400 mt-1">© 2026 ToppySmart Logistics. All rights reserved.</p>
+          </div>
+          <button onClick={onPartner} className="text-sm font-black text-blue-600 hover:underline">🤝 ร่วมเป็นพาร์ทเนอร์ รับค่าคอมมิชชัน</button>
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+
 export default function App() {
   // 🟢 วาง State เครื่องพิมพ์ไว้ตรงนี้ (ใต้บรรทัดเปิด function App)
   const [bluetoothDevice, setBluetoothDevice] = useState(null);
@@ -227,33 +677,17 @@ export default function App() {
     const finalTracking = trackingInputs[order.id] || order.trackingNum;
 
     if (!finalTracking) {
-      alert("รบกวนตรวจสอบ 'เลขพัสดุ' ในช่องก่อนกดส่งนะครับท่าน CEO!");
+      alert("รบกวนตรวจสอบ 'เลขพัสดุ' ในช่องก่อนกดส่งนะครับ!");
       return;
     }
 
-    // 2. ⚡ ถ้าระบบตรวจสอบแล้วพบ pageId และ senderId จากแชท (เหมือนในภาพ image_de2385.jpg)
-    if (order.pageId && order.senderId) {
+    // (เดิม) ถ้าระบบตรวจสอบแล้วพบ pageId และ senderId จากแชท (เหมือนในภาพ image_de2385.jpg)
+    // 2. ⚡ ถ้ามี pageId/senderId จากแชท ให้เซิร์ฟเวอร์ส่งเข้า Messenger (ตรวจสิทธิ์ที่ api/send-tracking.js)
+    if (order.pageId && order.senderId && order.id) {
       try {
-        // ยิง Fetch API ไปที่หลังบ้าน webhook.js
-        const response = await fetch('/api/webhook', { // 🛑 ปรับ Path ตรงนี้ให้ตรงกับ Route หลังบ้านของท่านนะครับ เช่น /api/webhook
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'send_tracking',
-            pageId: order.pageId,
-            senderId: order.senderId,
-            trackingNum: finalTracking,
-            customerName: order.customerName
-          })
-        });
-
-        const data = await response.json();
-        if (data.success) {
-          alert(`⚡ ยิงเลขพัสดุ ${finalTracking} เข้า Messenger คุณ ${order.customerName || ''} เรียบร้อยครับท่าน CEO!`);
-          return; // ส่งสำเร็จ จบงานทันทีไม่ต้องก๊อปวาง
-        } else {
-          console.error("Webhook error:", data.error);
-        }
+        await callApi('/api/send-tracking', { orderId: order.id });
+        alert(`⚡ ยิงเลขพัสดุ ${finalTracking} เข้า Messenger คุณ ${order.customerName || ''} เรียบร้อยครับ!`);
+        return; // ส่งสำเร็จ จบงานทันทีไม่ต้องก๊อปวาง
       } catch (error) {
         console.error("Failed to send automatic chat:", error);
       }
@@ -357,20 +791,14 @@ SmartLabel ยินดีให้บริการครับ ✅
     }
   };
 
-  // 📡 ฟังก์ชันขอเลขพัสดุ (เรียกผ่าน API หลังบ้าน ปลอดภัย 100%)
+  // 📡 ขอเลขพัสดุ: เรียกผ่านเซิร์ฟเวอร์ (credential อยู่ฝั่ง server เท่านั้น)
   const fetchRealTrackingFromTHP = async (type = '1') => {
     try {
-      const response = await fetch('/api/thp-tracking', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type })
-      });
-      const data = await response.json();
-      return data.trackingNum;
+      const data = await callApi('/api/thp', { action: 'tracking', type });
+      return data.trackingNumber || null;
     } catch (error) {
-      console.error("Error fetching tracking:", error);
-      const randomNum = Math.floor(100000000 + Math.random() * 900000000);
-      return type === '1' ? `ED${randomNum}TH` : type === '2' ? `RC${randomNum}TH` : `TH${randomNum}TH`;
+      console.error('ขอเลขพัสดุจากไปรษณีย์ไทยไม่สำเร็จ:', error);
+      return null; // ไม่สุ่มเลขปลอมอีกต่อไป
     }
   };
 
@@ -890,11 +1318,12 @@ SmartLabel ยินดีให้บริการครับ ✅
       else { secondaryApp = initializeApp(auth.app.options, appName); }
       const secondaryAuth = getAuth(secondaryApp);
       const staffEmail = `${newStaff.phone}@smartlabel.com`;
-      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, staffEmail, '123456');
+      const tempPassword = Array.from(crypto.getRandomValues(new Uint32Array(10)), (n) => 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'[n % 54]).join('');
+      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, staffEmail, tempPassword);
       const newUid = userCredential.user.uid;
       await setDoc(doc(db, "users", newUid), { email: staffEmail, name: newStaff.name, phone: newStaff.phone, role: newStaff.role, ownerId: userOwnerId, createdAt: serverTimestamp() });
       await signOut(secondaryAuth);
-      alert(`เพิ่มพนักงานสำเร็จ! รหัสผ่านเริ่มต้นคือ: 123456`); setNewStaff({ name: '', phone: '', role: 'Staff' }); loadStaffData();
+      alert(`เพิ่มพนักงานสำเร็จ!\nไอดีเข้าสู่ระบบ: ${newStaff.phone}\nรหัสผ่านชั่วคราว: ${tempPassword}\n(แสดงครั้งเดียว กรุณาจดและแจ้งพนักงานทันที)`); setNewStaff({ name: '', phone: '', role: 'Staff' }); loadStaffData();
     } catch (error) { alert("เกิดข้อผิดพลาด หรือเบอร์โทรนี้ถูกใช้งานไปแล้วครับ"); }
   };
 
@@ -1047,18 +1476,6 @@ SmartLabel ยินดีให้บริการครับ ✅
         if (!user) return;
         const userRef = doc(db, "users", user.uid);
         
-        // 🔍 หากุญแจของเพจที่ลูกค้าติ๊กเลือก
-        let pageTokenToSave = "";
-        let pageIdToSave = "";
-        
-        // สมมติว่าระบบเราให้เลือกทีละ 1 เพจหลักก่อน
-        if (selectedPages.length > 0 && connectedPages.length > 0) {
-            const matchedPage = connectedPages.find(p => p.id === selectedPages[0]);
-            if (matchedPage) {
-                pageTokenToSave = matchedPage.access_token;
-                pageIdToSave = matchedPage.id;
-            }
-        }
         
         await setDoc(userRef, {
           storeName: tempProfile.name,
@@ -1067,13 +1484,13 @@ SmartLabel ยินดีให้บริการครับ ✅
           specialLine1: tempProfile.specialLine1 || "",
           specialLine2: tempProfile.specialLine2 || "",
           licenseNo: tempProfile.licenseNo || "",
-          contractNo: tempProfile.contractNo || "",
-          // 🔥 เซฟกุญแจเพจลง Database ตรงนี้ครับ
-          facebookPageId: pageIdToSave,
-          pageAccessToken: pageTokenToSave,
-          connectedPages: selectedPages, // เก็บ array ไอดีเพจที่เลือก
+          contractNo: tempProfile.contractNo || "",        
           updatedAt: serverTimestamp()
         }, { merge: true });
+
+        if (connectedPages.length > 0) {
+          await callApi('/api/facebook-pages', { action: 'select', pageIds: selectedPages });
+        }
 
         setStoreProfile(tempProfile);
         alert("บันทึกข้อมูลร้านค้าและตั้งค่าเพจสำเร็จเรียบร้อยครับ!");
@@ -1090,78 +1507,35 @@ SmartLabel ยินดีให้บริการครับ ✅
     setShowTutorial(true);   // สั่งให้หน้าต่างกระจกฝ้า Tutorial เด้งขึ้นมา
   };
 
-// 🔑 1. ฟังก์ชันขอ Token (เรียกผ่าน API หลังบ้าน ปลอดภัย 100%)
-  const getTHPToken = async () => {
-    try {
-      const response = await fetch('/api/thp-token', { method: 'POST' });
-      const resData = await response.json();
-      return resData.token || null;
-    } catch (error) {
-      console.error("Token Error:", error);
-      return null;
-    }
-  };
+  // token ถูกจัดการฝั่ง server แล้ว คืนค่าคงที่เพื่อให้จุดเรียกเดิมใน handleSaveAndPrint ทำงานต่อได้
+  const getTHPToken = async () => 'server-managed';
 
+  const preloadOrderToTHP = async (_token, order, trackingNum) => {
+  try {
+    const p = order.parsedData;
+    const data = await callApi('/api/thp', {
+      action: 'preload',
+      trackingNum,
+      order: {
+        customerName: p.customerName, phone: p.phone, address: p.address, zipcode: p.zipcode,
+        items: p.items, isCOD: p.isCOD, codAmount: p.codAmount,
+      },
+    });
+    return !!data.ok;
+  } catch (error) {
+    console.error('Preload Error:', error);
+    return false;
+  }
+};
 
-  // 📡 2. ฟังก์ชันส่งข้อมูลรายละเอียดจ่าหน้าเข้าระบบ (Preload) [cite: 236, 324, 503]
-  const preloadOrderToTHP = async (token, order, trackingNum) => {
-    try {
-      const payload = {
-        data: [{
-          tracking: trackingNum, // [cite: 398, 434, 469]
-          serv: 1, // 1 = EMS [cite: 134, 162, 399]
-          itm: order.parsedData.items.join(', ') || 'สินค้าทั่วไป', // [cite: 400, 436]
-          cod_amount: order.parsedData.isCOD ? order.parsedData.codAmount : "0", // [cite: 405, 447, 482]
-          // ข้อมูลผู้ส่ง [cite: 406-411, 483-492]
-          fr_name: storeProfile.name || 'SmartLabel Shop',
-          fr_tel: storeProfile.phone || '0888888888',
-          fr_address: storeProfile.address || 'กรุงเทพมหานคร',
-          fr_district: "-", 
-          fr_postcode: "10000",
-          fr_country_iso: "TH",
-          // ข้อมูลผู้รับ [cite: 412-417, 493-502]
-          det_name: order.parsedData.customerName,
-          det_tel: order.parsedData.phone,
-          det_address: order.parsedData.address,
-          det_district: "-", 
-          det_postcode: order.parsedData.zipcode,
-          det_country_iso: "TH"
-        }]
-      };
-
-      // ยิงข้อมูลเข้าสู่ระบบ Preload ของไปรษณีย์ไทย [cite: 348, 519]
-      const response = await fetch('https://pus2.thailandpost.com/redbox/items/preload', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`, // [cite: 364, 376]
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload) // [cite: 393, 531]
-      });
-
-      const result = await response.json();
-      return result.detail === 'ok'; // [cite: 605]
-    } catch (error) {
-      console.error("Preload Error:", error);
-      return false;
-    }
-  };
-
-  // 📡 ฟังก์ชันเช็คสถานะจากไปรษณีย์ไทย (เรียกผ่าน API หลังบ้าน ปลอดภัย 100%)
   const fetchTrackingStatus = async (trackingNum) => {
-    try {
-      const response = await fetch('/api/thp-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trackingNum })
-      });
-      const data = await response.json();
-      return data.status;
-    } catch (error) {
-      console.error("Error fetching status:", error);
-      return 'Preloaded'; 
-    }
-  };
+  try {
+    const data = await callApi('/api/thp', { action: 'status', trackingNum });
+    return data.status || 'Preloaded';
+  } catch (error) {
+    return 'Preloaded'; // ถ้าเช็คไม่ได้ให้คงสถานะเดิมไว้
+  }
+};
 
   const handleUpdateAllStatus = async () => {
     setLoading(true);
@@ -1858,7 +2232,12 @@ const handleExportCSV = () => {
       const currentStoreName = storeProfile?.name || "ร้านค้าสมาชิก SmartLabel";
       
       // ดึงยอดเงิน (amountPaid) ที่กรอกจาก State โดยตรง (ไม่ต้องเช็คแพ็กเกจ 500/2000 แล้ว)
-      const amountPaid = Number(topupAmount) || 0;
+      const amountPaid = Math.floor(Number(topupAmount) || 0);
+      if (amountPaid < 100 || amountPaid > 100000) {
+        alert("ยอดเติมเงินต้องอยู่ระหว่าง 100 - 100,000 บาทครับ");
+        setIsUploading(false);
+        return;
+      }
       const packageName = "Pay-As-You-Go";
       const labelCount = 0; // เราไม่ใช้ระบบนับใบ (โควต้า) แล้ว ปล่อยเป็น 0 ได้เลย
 
@@ -1877,22 +2256,10 @@ const handleExportCSV = () => {
 
       console.log("บันทึก Firestore สำเร็จ ID:", topupRef.id);
 
-      // (2) 📡 ยิงเข้า Telegram ผ่าน API หลังบ้าน (ปลอดภัย 100%)
-      const messageText = 
-        `🚨 *มียอดแจ้งโอนเงินเข้ามาใหม่! [SmartLabel]*\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
-        `🏪 *ร้านค้า:* ${currentStoreName}\n` +
-        `📧 *อีเมล:* ${user.email || 'ไม่ระบุ'}\n` +
-        `📦 *แพ็กเกจ:* ${packageName}\n` +
-        `💰 *ยอดเงินโอน:* ฿${amountPaid.toLocaleString()}.00 บาท\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
-        `🔍 *กรุณาตรวจสอบและอนุมัติที่หน้า SuperAdmin*`;
+      // (2) 📡 แจ้ง Telegram ผ่านเซิร์ฟเวอร์ (ถ้าล้มเหลวไม่กระทบการแจ้งโอน)
+      callApi('/api/notify-topup', { topupId: topupRef.id }).catch((err) => console.warn('Telegram notify error:', err)); 
+      
 
-      await fetch('/api/telegram', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageText })
-      }).catch(err => console.log("Telegram send background error:", err));
 
       alert("🚀 ส่งหลักฐานการชำระเงินสำเร็จเรียบร้อย! ระบบกำลังตรวจสอบสลิปค่ะ");
       setIsTopupOpen(false);
@@ -2008,218 +2375,11 @@ const handleExportCSV = () => {
 
 if (!user && !isAuthView) {
     return (
-      <div className="min-h-screen bg-slate-950 font-sans text-gray-100 selection:bg-blue-600/30 overflow-x-hidden relative">
-        
-        {/* 🎨 ค่ายกล CSS เอฟเฟกต์กระจกฝ้าและ Animation เด้งนุ่ม ๆ */}
-        <style>{`
-          @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
-          .animate-float { animation: float 4s ease-in-out infinite; }
-          .btn-cute { transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-          .btn-cute:hover { transform: scale(1.05) translateY(-3px); box-shadow: 0 20px 40px -10px rgba(59, 130, 246, 0.5); }
-          .card-hover { transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-          .card-hover:hover { transform: translateY(-10px); border-color: rgba(59, 130, 246, 0.4); background: rgba(30, 41, 59, 0.7); }
-        `}</style>
-        
-        {/* 🧭 1. แถบเนวิเกเตอร์ (Navbar) - โปร่งแสงรับมิติด้านหลัง */}
-        <nav className="flex justify-between items-center px-6 md:px-12 py-5 border-b border-slate-800 bg-slate-950/70 backdrop-blur-xl sticky top-0 z-50">
-          <div className="text-2xl font-black text-blue-600 flex items-center gap-2">
-            <span className="animate-float inline-block">📦</span> SmartLabel
-          </div>{/* 🧭 Logo เดิม */}
-
-          <div className="flex gap-4 items-center">
-            <button 
-              onClick={() => setIsAuthView(true)} 
-              className="btn-cute bg-blue-600 hover:bg-blue-500 text-white px-7 py-2.5 rounded-2xl font-black text-sm shadow-lg shadow-blue-500/20 transition-all border border-blue-400/20"
-            >
-              🚀 เข้าสู่ระบบร้านค้า
-            </button>
-          </div>
-        </nav>
-        
-        {/* 🚀 2. โซนฮีโร่ (Hero Section) - บรรยากาศออฟฟิศแม่ค้าออนไลน์หลักพันชิ้น/วัน */}
-        <header className="relative min-h-[85vh] flex items-center justify-center px-6 py-24 text-center overflow-hidden">
-          
-          {/* 📸 ภาพแบล็กกราวด์: แม่ค้าออนไลน์มือโปรทำงานแพ็กของในบ้าน/สำนักงานขนาดเล็ก */}
-          <div 
-            className="absolute inset-0 bg-cover bg-center transition-all duration-1000 transform scale-105 hover:scale-100"
-            style={{ 
-              backgroundImage: `url('https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&q=80&w=1920')`,
-              filter: 'blur(3px) brightness(0.25)' // 🔑 สาดเอฟเฟกต์เบลอและปรับมืดเพื่อให้เนื้อหาด้านหน้าโดดเด่นสะใจ
-            }}
-          ></div>
-
-          {/* 🌌 ม่านแสงไล่เฉดสีช่วยดึงสายตาเข้าหาตรงกลาง */}
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-slate-950/60 to-slate-950 pointer-events-none"></div>
-          
-          <div className="relative z-10 max-w-4xl mx-auto animate-[fadeIn_0.8s_ease-out]">
-            <div className="inline-flex items-center gap-2 px-5 py-2.5 mb-8 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-full text-xs md:text-sm font-black tracking-widest uppercase backdrop-blur-md shadow-[0_0_15px_rgba(59,130,246,0.3)]">
-              ⚡ เร็วกว่า. ประหยัดกว่า. จัดการได้ในคลิกเดียว
-            </div>
-            
-            {/* 💥 ปรับขนาดพาดหัวให้ใหญ่ ชัด หนา ดึงดูดสายตาขั้นสุด */}
-            <h1 className="text-5xl md:text-7xl font-black text-white mb-8 leading-[1.15] tracking-tight">
-              สกัดแชทลูกค้าจ่าหน้า <br/>
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-indigo-400 to-emerald-400 drop-shadow-sm">
-                และแจ้งเลขพัสดุออโต้
-              </span>
-            </h1>
-            
-            <p className="text-lg md:text-2xl text-slate-300 mb-12 max-w-3xl mx-auto leading-relaxed font-medium">
-              ระบบแรกที่เชื่อมตรงกับ <strong className="text-blue-400 underline font-black">ไปรษณีย์ไทย (PostOne)</strong> ดึงที่อยู่ลูกค้าจากแชทเพจ Facebook มาสกัดและออกเลขจริงทันที พร้อมปุ่มสายฟ้ายิงเลขแทรคกิ้งกลับเข้า Messenger!
-            </p>
-            
-            <div className="flex flex-col sm:flex-row gap-5 justify-center items-center">
-              <button 
-                onClick={() => { setIsAuthView(true); setAuthMode('register'); }} 
-                className="btn-cute w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xl px-12 py-5 rounded-2xl font-black shadow-[0_0_30px_rgba(59,130,246,0.4)] flex items-center justify-center gap-3 border border-blue-400/30 group"
-              >
-                🚀 เริ่มต้นใช้งานฟรี 
-                <span className="group-hover:translate-x-1 transition-transform">👉</span>
-              </button>
-              <div className="flex flex-col text-left">
-                <div className="text-slate-300 text-sm font-bold flex items-center gap-2">
-                  <span className="text-emerald-400">✓</span> ใช้ฟรี 5 จ่าหน้าทุกวัน
-                </div>
-                <div className="text-slate-400 text-xs font-medium flex items-center gap-2 mt-1">
-                  <span>⏳</span> สมัครเสร็จรันระบบได้ใน 1 นาที
-                </div>
-              </div>
-            </div>
-          </div>
-        </header>
-        
-        {/* 🌟 3. โซนการ์ดฟังก์ชันเด่น (Features Showcase) */}
-        <section className="py-28 px-6 max-w-7xl mx-auto relative z-20">
-          <div className="text-center mb-20">
-            <h2 className="text-4xl md:text-6xl font-black text-white mb-4">ฟังก์ชันที่ทำให้คลังสินค้าคุณ "เหนือกว่า"</h2>
-            <p className="text-slate-400 text-base md:text-lg max-w-xl mx-auto mt-2 font-medium">เปลี่ยนโต๊ะทำงานที่บ้านให้กลายเป็นแพลตฟอร์มแพ็กของอัจฉริยะ</p>
-            <div className="h-1.5 w-24 bg-gradient-to-r from-blue-500 to-indigo-500 mx-auto rounded-full mt-6"></div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            <div className="bg-slate-900/40 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-xl card-hover">
-              <div className="text-5xl mb-5 animate-float inline-block">📡</div>
-              <h3 className="text-xl font-black mb-3 text-white">Direct THP API</h3>
-              <p className="text-slate-400 text-sl leading-relaxed font-medium">ต่อท่อตรงเข้าเซิร์ฟเวอร์ไปรษณีย์ไทยของจริง พิมพ์ใบปะหน้าความร้อนพร้อมบาร์โค้ดสากลทันที</p>
-            </div>
-            <div className="bg-slate-900/40 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-xl card-hover">
-              <div className="text-5xl mb-5 animate-float inline-block">⚡</div>
-              <h3 className="text-xl font-black mb-3 text-white">Auto Chat Send</h3>
-              <p className="text-slate-400 text-sl leading-relaxed font-medium">ปุ่มสายฟ้าคลิกเดียวส่งเลขพัสดุและลิงก์ติดตามสถานะเด้งกลับเข้าแชทลูกค้า ไม่ต้องเปิดสลับจอ</p>
-            </div>
-            <div className="bg-slate-900/40 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-xl card-hover">
-              <div className="text-5xl mb-5 animate-float inline-block">🤖</div>
-              <h3 className="text-xl font-black mb-3 text-white">Smart Inbox</h3>
-              <p className="text-slate-400 text-sl leading-relaxed font-medium">ดูดแชทลูกค้าสกัดชื่อ เบอร์โทร รหัสไปรษณีย์ และแชร์ข้อมูลให้ทีมงานพนักงานแพ็กช่วยส่องพร้อมกัน</p>
-            </div>
-            <div className="bg-slate-900/40 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-xl card-hover">
-              <div className="text-5xl mb-5 animate-float inline-block">👥</div>
-              <h3 className="text-xl font-black mb-3 text-white">Staff Management</h3>
-              <p className="text-slate-400 text-sl leading-relaxed font-medium">ระบบกักข้อมูลพนักงานรายบุคคล แอดมินแพ็กจะเห็นและสกัดได้เฉพาะงานตัวเอง ป้องกันส่งซ้ำ</p>
-            </div>
-          </div>
-        </section>
-
-        {/* 💳 4. โซนตารางราคาแพ็กเกจ (Pricing Section) */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left items-stretch">
-              
-              {/* แพ็กเกจ Starter */}
-              <div className="bg-slate-900/50 backdrop-blur-md p-8 rounded-[2.5rem] shadow-xl border border-slate-800 card-hover flex flex-col justify-between">
-                <div>
-                  <div className="mb-6">
-                    <p className="text-slate-500 font-black mb-2 tracking-widest uppercase text-xs">Starter (ฟรีตลอดชีพ)</p>
-                    <p className="text-5xl font-black mb-2 text-white">฿0</p>
-                    <p className="text-emerald-400 text-sm font-bold">เหมาะสำหรับแม่ค้ามือใหม่</p>
-                  </div>
-                  <ul className="text-sm text-slate-400 mb-10 space-y-4 font-medium border-t border-slate-800 pt-6">
-                    <li className="flex items-center gap-2 text-emerald-400 font-bold">🎁 ใช้ฟรี 5 จ่าหน้า / วัน</li>
-                    <li className="flex items-center gap-2">✅ สกัดที่อยู่จากข้อความแชทอัตโนมัติ</li>
-                    <li className="flex items-center gap-2">✅ ระบบจำลูกค้าเก่าอัตโนมัติ (CRM)</li>
-                    <li className="flex items-center gap-2">✅ ออกเลข EMS ของไปรษณีย์ไทย</li>
-                  </ul>
-                </div>
-                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-2xl border-2 border-slate-700 text-slate-300 font-bold bg-slate-800/40 hover:bg-slate-800">เริ่มใช้งานฟรี</button>
-              </div>
-
-              {/* 🔥 แพ็กเกจ Pay-As-You-Go */}
-              <div className="bg-slate-900/90 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-2xl border-4 border-blue-500 relative overflow-hidden card-hover transform md:-translate-y-6 flex flex-col justify-between text-white">
-                <div className="absolute top-0 right-0 bg-blue-500 text-white px-6 py-2 font-black text-xs rounded-bl-2xl uppercase tracking-widest animate-pulse">ยอดฮิต 🔥</div>
-                <div>
-                  <div className="mb-6">
-                    <p className="text-blue-400 font-black mb-2 tracking-widest uppercase text-xs">Pay-As-You-Go (ไม่มีวันหมดอายุ)</p>
-                    <p className="text-5xl font-black mb-2 text-white">ขั้นต่ำ ฿100</p>
-                    <p className="text-blue-200 text-sm font-black mt-2">ใช้เท่าไหร่ จ่ายเท่านั้น! ยิ่งส่งเยอะ ยิ่งถูกลง</p>
-                  </div>
-                  <div className="bg-slate-800/50 p-4 rounded-xl mb-6">
-                    <div className="text-xs space-y-2 font-mono">
-                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 1 - 5</span><span className="text-emerald-400 font-bold">ฟรี</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 6 - 20</span><span className="text-white">฿0.40 / ใบ</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 21 - 50</span><span className="text-white">฿0.30 / ใบ</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 51 - 100</span><span className="text-white">฿0.25 / ใบ</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 101 - 200</span><span className="text-white">฿0.20 / ใบ</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 201 - 500</span><span className="text-white">฿0.15 / ใบ</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">ใบที่ 501 ขึ้นไป</span><span className="text-blue-400 font-bold">฿0.10 / ใบ</span></div>
-                    </div>
-                  </div>
-                  <ul className="text-sm text-slate-300 mb-10 space-y-4 font-medium border-t border-slate-800 pt-6">
-                    <li className="flex items-center gap-3">✅ ได้ฟีเจอร์เหมือน Starter ทุกอย่าง</li>
-                    <li className="flex items-center gap-3">✅ หน้าแดชบอร์ดสรุปสถิติมุมมองรวมเถ้าแก่</li>
-                    <li className="flex items-center gap-3">✅ ดาวน์โหลดไฟล์ Excel ทำรายงานส่งสถิติ</li>
-                  </ul>
-                </div>
-                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black shadow-xl shadow-blue-500/40">เติมเงินเริ่มใช้งาน</button>
-              </div>
-
-              {/* แพ็กเกจ Ultimate Automation */}
-              <div className="bg-slate-900/50 backdrop-blur-md p-8 rounded-[2.5rem] shadow-xl border border-slate-800 card-hover flex flex-col justify-between">
-                <div>
-                  <div className="mb-6">
-                    <p className="text-slate-500 font-black mb-2 tracking-widest uppercase text-xs">Ultimate Automation</p>
-                    <p className="text-5xl font-black mb-2 text-white">฿1,000<span className="text-xl text-slate-500 font-normal">/ด.</span></p>
-                    <p className="text-indigo-400 text-sm font-bold">ปลดล็อกทุกขีดจำกัด ทำงานอัตโนมัติ 100%</p>
-                  </div>
-                  <ul className="text-sm text-slate-400 mb-10 space-y-4 font-medium border-t border-slate-800 pt-6">
-                    <li className="flex items-center gap-2 text-white font-bold">♾️ จ่าหน้าไม่จำกัด (Unlimited)</li>
-                    <li className="flex items-center gap-2">🚀 ดูดแชท Facebook Page ฟรี 30 วัน</li>
-                    <li className="flex items-center gap-2">⚡ ปุ่มสายฟ้ายิงแจ้งเลขพัสดุเข้าแชทอัตโนมัติ</li>
-                    <li className="flex items-center gap-2">👥 แดชบอร์ดคัดแยกสถิติพนักงานรายบุคคล</li>
-                  </ul>
-                </div>
-                <button onClick={() => { setIsAuthView(true); setAuthMode('register'); }} className="btn-cute w-full py-4 rounded-2xl border-2 border-indigo-500/40 text-indigo-400 font-bold bg-slate-800/20 hover:bg-slate-800">สมัครแพ็กเกจโปร</button>
-              </div>
-            </div>
-
-        {/* 📞 5. โซนปิดการขายและกล่องช่องทางติดต่อ (Call to Action) */}
-        <section className="py-24 text-center relative px-6 z-20">
-          <div className="max-w-4xl mx-auto bg-gradient-to-br from-slate-900 to-slate-900/40 border border-slate-800 rounded-[3rem] p-10 md:p-16 shadow-2xl relative overflow-hidden">
-            <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl"></div>
-            <h2 className="text-3xl md:text-5xl font-black text-white mb-4">ต้องการสอบถามข้อมูลเพิ่มเติม?</h2>
-            <p className="text-slate-400 font-medium mb-10 max-w-xl mx-auto text-base">ทีมงาน ToppySmart พร้อมช่วยเหลือครับ</p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-              <a href="https://qr-official.line.me/gs/M_057bbduq_GW.png?oat_content=qr" target="_blank" rel="noreferrer" 
-                className="btn-cute w-full sm:w-auto flex items-center justify-center gap-3 px-12 py-5 bg-[#06C755] text-white font-black rounded-2xl shadow-xl shadow-green-500/20 text-lg">
-                <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
-                  <path d="M24 10.304c0-5.369-5.383-9.738-12-9.738s-12 4.369-12 9.738c0 4.814 4.269 8.846 10.036 9.564.39.084.922.258 1.058.592.12.296.08.759.04 1.058l-.17 1.023c-.05.32-.25 1.253 1.09.684 1.34-.57 7.21-4.24 9.84-7.252 2.11-2.43 2.11-4.78 2.11-5.691zm-15.39 3.011c0 .4-.33.73-.73.73h-1.63c-.4 0-.73-.33-.73-.73v-4.1c0-.4.33-.73.73-.73s.73.33.73.73v3.37h.9c.4 0 .73.33 .73.73zm2.59-.73c0 .4-.33.73-.73.73s-.73-.33-.73-.73v-4.1c0-.4.33-.73.73-.73s.73.33.73.73v4.1zm5.54.73c0 .4-.33.73-.73.73h-2.15c-.4 0-.73-.33-.73-.73v-4.1c0-.4.33-.73.73-.73h2.15c.4 0 .73.33 .73.73s-.33.73-.73.73h-1.42v.69h1.16c.4 0 .73.33 .73.73s-.33.73-.73.73h-1.16v.77h1.42c.4 0 .73.33 .73.73zm-3.03-2.15l1.32-1.98v1.98c0 .4.33.73.73.73s.73-.33.73-.73v-4.1c0-.43-.36-.73-.75-.73-.24 0-.46.12-.59.32l-1.44 2.16v-2.16c0-.4-.33-.73-.73-.73s-.73.33-.73.73v4.1c0 .4.33.73.73.73.39 0 .73-.3.73-.73z"/>
-                </svg>
-                เพิ่มเพื่อนสอบถามทาง LINE
-              </a>
-            </div>
-          </div>
-        </section>
-
-        {/* 👣 6. ส่วนท้ายสุดเอกสาร (Footer) */}
-        <footer className="py-12 bg-slate-950 border-t border-slate-900 px-6 relative z-20">
-          <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
-            <div className="text-center md:text-left">
-              <div className="text-2xl font-black text-blue-400 mb-1">SmartLabel</div>
-              <p className="text-slate-500 text-xs font-bold">© 2026 ToppySmart Logistics. All rights reserved. <br/>พัฒนาร่วมกับ CTO Copilot</p>
-            </div>
-            <div className="flex gap-6">
-               <button onClick={() => { setIsAuthView(true); setAuthType('partner'); setAuthMode('login'); }} className="text-sm text-blue-400 font-black hover:underline flex items-center gap-2">🤝 ร่วมเป็นพาร์ทเนอร์กับเรา สมัครหรือเข้าใช้งานที่นี่</button>
-            </div>
-          </div>
-        </footer>
-      </div>
+      <LandingPage
+        onLogin={() => { setAuthMode('login'); setAuthType('merchant'); setIsAuthView(true); }}
+        onRegister={() => { setAuthMode('register'); setAuthType('merchant'); setIsAuthView(true); }}
+        onPartner={() => { setAuthType('partner'); setAuthMode('login'); setIsAuthView(true); }}
+      />
     );
   }
 
@@ -2661,38 +2821,38 @@ if (!user && isAuthView) {
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-50 print:hidden transition-opacity">
           <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-lg modal-enter max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">🚀 เติมแพ็กเกจจ่าหน้า</h2>
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">🚀 เติมเงินเข้ากระเป๋า</h2>
               <button onClick={() => { setIsTopupOpen(false); setSlipImage(null); }} className="text-gray-400 hover:text-rose-500 hover:rotate-90 transition-transform font-bold text-2xl">&times;</button>
             </div>
             
             <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 p-4 rounded-2xl mb-6 text-center card-hover">
-              <p className="text-indigo-600 font-medium mb-1">โควต้าปัจจุบันของคุณ</p>
-              <p className="text-4xl font-extrabold text-indigo-700">{quota} <span className="text-lg font-normal">ใบ</span></p>
+              <p className="text-indigo-600 font-medium mb-1">ยอดเงินคงเหลือในกระเป๋า</p>
+              <p className="text-4xl font-extrabold text-indigo-700">฿{Number(balance || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
             </div>
 
-            <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span> เลือกแพ็กเกจสุดคุ้ม</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              {/* แพ็กเกจ 500 ใบ */}
-              <div onClick={() => setSelectedPackage(500)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 500 ? 'border-slate-500 bg-slate-50 scale-[1.03] shadow-md shadow-slate-500/20' : 'border-gray-200 hover:border-slate-300 hover:bg-slate-50'}`}>
-                {selectedPackage === 500 && <div className="absolute top-0 right-0 bg-slate-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">เลือกอยู่</div>}
-                <p className={`font-black text-xl ${selectedPackage === 500 ? 'text-slate-700' : 'text-slate-700'}`}>500 ใบ</p>
-                <p className="text-xs text-slate-500 mt-1 font-medium">200 บาท</p>
-              </div>
-
-              {/* แพ็กเกจ 2,000 ใบ */}
-              <div onClick={() => setSelectedPackage(2000)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 2000 ? 'border-blue-500 bg-blue-50 scale-[1.03] shadow-md shadow-blue-500/20' : 'border-gray-200 hover:border-blue-300 hover:bg-slate-50'}`}>
-                {selectedPackage === 2000 && <div className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">ยอดฮิต 🔥</div>}
-                <p className={`font-black text-xl ${selectedPackage === 2000 ? 'text-blue-700' : 'text-slate-700'}`}>2,000 ใบ</p>
-                <p className="text-xs text-slate-500 mt-1 font-medium">500 บาท</p>
-              </div>
-
-              {/* 💎 แพ็กเกจ Premium 5,000 ใบ */}
-              <div onClick={() => setSelectedPackage(5000)} className={`border-2 rounded-2xl p-4 text-center cursor-pointer relative transition-all ${selectedPackage === 5000 ? 'border-indigo-500 bg-indigo-50 scale-[1.03] shadow-md shadow-indigo-500/20' : 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'}`}>
-                {selectedPackage === 5000 && <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">พรีเมียม 💎</div>}
-                <p className={`font-black text-xl ${selectedPackage === 5000 ? 'text-indigo-700' : 'text-slate-700'}`}>5,000 ใบ</p>
-                <p className="text-xs text-indigo-600 mt-1 font-black">+ ดูดแชท 30 วัน</p>
-                <p className="text-xs text-indigo-600 mt-1 font-black">1,000 บาท</p>
-              </div>
+            <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span> เลือกยอดเติมเงิน</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+              {[100, 200, 500, 1000].map((amt) => (
+                <button
+                  key={amt}
+                  type="button"
+                  onClick={() => setTopupAmount(amt)}
+                  className={`border-2 rounded-2xl p-4 text-center transition-all ${Number(topupAmount) === amt ? 'border-blue-500 bg-blue-50 scale-[1.03] shadow-md' : 'border-slate-200 text-slate-700 hover:border-blue-300'}`}
+                >
+                  <p className="font-black text-xl">฿{amt.toLocaleString()}</p>
+                  {amt === 1000 && <p className="text-[10px] text-indigo-600 font-black mt-1">+ Premium 30 วัน 💎</p>}
+                </button>
+              ))}
+            </div>
+            <div className="mb-6">
+              <label className="text-xs font-bold text-slate-500">หรือกรอกยอดเอง (ขั้นต่ำ ฿100)</label>
+              <input
+                type="number" min="100" max="100000" step="1"
+                value={topupAmount}
+                onChange={(e) => setTopupAmount(Math.max(0, Math.min(100000, Math.floor(Number(e.target.value) || 0))))}
+                className="w-full border border-slate-200 rounded-xl p-3 mt-1 font-bold outline-none focus:ring-4 focus:ring-blue-100"
+              />
+              {Number(topupAmount) < 100 && <p className="text-xs text-rose-500 font-bold mt-1">ยอดเติมขั้นต่ำ 100 บาท</p>}
             </div>
 
             <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><span className="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">2</span> สแกน QR ชำระเงิน</h3>
@@ -2700,14 +2860,14 @@ if (!user && isAuthView) {
               <div className="bg-white p-3 rounded-xl shadow-sm mb-3 border border-slate-100">
                 {/* 🎯 สลับยอดเงิน QR Code ให้ตรงกับ 3 แพ็กเกจ */}
                 <QRCodeSVG 
-                  value={generatePayload("0874484448", { amount: selectedPackage === 500 ? 200 : selectedPackage === 2000 ? 500 : 1000 })} 
+                  value={generatePayload("0874484448", { amount: Number(topupAmount) || 100 })} 
                   size={130} 
                 />
               </div>
               <p className="text-sm font-black text-slate-800">พร้อมเพย์: ท็อปปี้สมาร์ท โลจิสติกส์</p>
               <p className="text-lg font-black text-emerald-600 mt-1 bg-emerald-50 px-4 py-1 rounded-full border border-emerald-100">
                 {/* 🎯 สลับข้อความยอดชำระให้ตรงกัน */}
-                ยอดชำระ: ฿{selectedPackage === 500 ? '200.00' : selectedPackage === 2000 ? '500.00' : '1,000.00'}
+                ยอดชำระ: ฿{(Number(topupAmount) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
             </div>
 
@@ -2864,23 +3024,18 @@ if (!user && isAuthView) {
                 scope="pages_show_list,pages_messaging,pages_read_engagement"
                 // 📍 ปรับปรุงท่อน callback ของ FacebookLogin ใน App.jsx ให้ดึง Page Token ตัวจริง
                 callback={async (response) => {
-                  console.log("ล็อกอินบุคคลสำเร็จ:", response);
-                  if (response.accessToken) {
-                    try {
-                      const fbPageUrl = `https://graph.facebook.com/v20.0/me/accounts?access_token=${response.accessToken}`;
-                      const fbResponse = await fetch(fbPageUrl);
-                      const fbData = await fbResponse.json();
-
-                      if (fbData.data && fbData.data.length > 0) {
-                        // 🔥 แค่ดึงรายชื่อเพจและกุญแจทั้งหมดมาพักไว้ใน State ก่อน
-                        setConnectedPages(fbData.data);
-                        alert(`ดึงรายชื่อเพจสำเร็จ! กรุณาติ๊กเลือกเพจที่ต้องการด้านล่าง แล้วกด "บันทึก" ครับ`);
-                      } else {
-                        alert("❌ ไม่พบเพจ Facebook ที่เชื่อมต่อกับบัญชีนี้");
-                      }
-                    } catch (err) {
-                      console.error("เกิดข้อผิดพลาดในการดึง Page Token:", err);
+                  if (!response.accessToken) return;
+                  try {
+                    const pages = await callApi('/api/facebook-pages', { action: 'list', userAccessToken: response.accessToken });
+                    if (pages.length > 0) {
+                      setConnectedPages(pages); // มีแค่ { id, name } ไม่มี token
+                      alert('ดึงรายชื่อเพจสำเร็จ! กรุณาติ๊กเลือกเพจด้านล่าง แล้วกด "บันทึก" ครับ');
+                    } else {
+                      alert('❌ ไม่พบเพจ Facebook ที่เชื่อมต่อกับบัญชีนี้');
                     }
+                  } catch (err) {
+                    console.error(err);
+                    alert('เชื่อมต่อ Facebook ไม่สำเร็จ: ' + err.message);
                   }
                 }}
                 render={renderProps => (
@@ -3754,7 +3909,7 @@ if (!user && isAuthView) {
               <div key={index} className="border border-slate-200 rounded-3xl bg-white shadow-lg overflow-hidden flex flex-col card-hover">
                 <div className="bg-slate-100 h-48 w-full border-b border-slate-200 relative">
                   {req.data.slipImage ? (
-                    <img src={req.data.slipImage} alt="Slip" className="w-full h-full object-cover" onClick={() => window.open(req.data.slipImage, '_blank')} title="คลิกเพื่อดูรูปใหญ่" style={{cursor: 'zoom-in'}} />
+                    <img src={req.data.slipImage} alt="Slip" className="w-full h-full object-cover" onClick={() => { if (String(req.data.slipImage).startsWith('data:image/')) window.open(req.data.slipImage, '_blank', 'noopener'); }} title="คลิกเพื่อดูรูปใหญ่" style={{cursor: 'zoom-in'}} />
                   ) : (
                     <div className="flex items-center justify-center h-full text-slate-400 font-medium">ไม่มีรูปภาพแนบมา</div>
                   )}
