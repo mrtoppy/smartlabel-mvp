@@ -357,38 +357,20 @@ SmartLabel ยินดีให้บริการครับ ✅
     }
   };
 
-  // 📡 ฟังก์ชันขอเลขพัสดุ (อัปเกรดรองรับ EMS/ลงทะเบียน/พัสดุ)
+  // 📡 ฟังก์ชันขอเลขพัสดุ (เรียกผ่าน API หลังบ้าน ปลอดภัย 100%)
   const fetchRealTrackingFromTHP = async (type = '1') => {
     try {
-      const username = '22061';
-      const password = 'RWJRlBbGkeMRTr7DSLGd9JGAaP0zjqPI';
-      const authHeader = 'Basic ' + btoa(`${username}:${password}`);
-
-      const response = await fetch(`https://postone.thailandpost.com/api/bc.php?typ=${type}&cnt=1`, {
-        method: 'GET',
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/json'
-        }
+      const response = await fetch('/api/thp-tracking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type })
       });
-
-      if (!response.ok) throw new Error('API Blocked or Error');
-
-      const data = await response.text();
-      return data.trim();
-
+      const data = await response.json();
+      return data.trackingNum;
     } catch (error) {
-      console.warn("⚠️ API Error (อาจติด CORS): ใช้ระบบจำลองที่ถูกต้องแทน");
-      
-      // 🛡️ ระบบจำลองที่สมจริง (Mock 2.0)
+      console.error("Error fetching tracking:", error);
       const randomNum = Math.floor(100000000 + Math.random() * 900000000);
-      
-      // ถ้าเป็น type 1 (EMS) ให้ขึ้นต้นด้วย E
-      if (type === '1') return `ED${randomNum}TH`; 
-      // ถ้าเป็น type 2 (ลงทะเบียน) ให้ขึ้นต้นด้วย R
-      if (type === '2') return `RC${randomNum}TH`;
-      // อื่นๆ ให้เป็น TH
-      return `TH${randomNum}TH`;
+      return type === '1' ? `ED${randomNum}TH` : type === '2' ? `RC${randomNum}TH` : `TH${randomNum}TH`;
     }
   };
 
@@ -1165,28 +1147,19 @@ SmartLabel ยินดีให้บริการครับ ✅
     }
   };
 
-  // 📡 ฟังก์ชันเช็คสถานะจากไปรษณีย์ไทย
+  // 📡 ฟังก์ชันเช็คสถานะจากไปรษณีย์ไทย (เรียกผ่าน API หลังบ้าน ปลอดภัย 100%)
   const fetchTrackingStatus = async (trackingNum) => {
     try {
-      const username = '22061'; // [cite: 1]
-      const password = 'RWJRlBbGkeMRTr7DSLGd9JGAaP0zjqPI'; // [cite: 1]
-      const authHeader = 'Basic ' + btoa(`${username}:${password}`); // [cite: 48]
-
-      // หมายเหตุ: URL นี้สำหรับดึงสถานะพัสดุ (Track & Trace)
-      const response = await fetch(`https://trackapi.thailandpost.co.th/post/api/v1/track`, {
+      const response = await fetch('/api/thp-status', {
         method: 'POST',
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ "trackNumber": [trackingNum], "language": "TH" })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackingNum })
       });
-
-      const result = await response.json();
-      // ดึงสถานะล่าสุด (เช่น รับฝาก, อยู่ระหว่างขนส่ง, นำจ่ายสำเร็จ) 
-      return result.response.items[trackingNum][0].status_description || 'Preloaded';
+      const data = await response.json();
+      return data.status;
     } catch (error) {
-      return 'Preloaded'; // ถ้าเช็คไม่ได้ให้คงสถานะเดิมไว้
+      console.error("Error fetching status:", error);
+      return 'Preloaded'; 
     }
   };
 
@@ -1904,10 +1877,6 @@ const handleExportCSV = () => {
 
       console.log("บันทึก Firestore สำเร็จ ID:", topupRef.id);
 
-      // (2) 📡 ยิงเข้า Telegram ด้วยวิธีห่อ URL (ทลายกำแพง CORS บน Vercel)
-      const TELEGRAM_BOT_TOKEN = "8781734272:AAFngphg8npXdgYpegDvVqxSCx98t8K1DJc"; 
-      const TELEGRAM_CHAT_ID = "-5548697561"; 
-      
       // (2) 📡 ยิงเข้า Telegram ผ่าน API หลังบ้าน (ปลอดภัย 100%)
       const messageText = 
         `🚨 *มียอดแจ้งโอนเงินเข้ามาใหม่! [SmartLabel]*\n` +
@@ -1924,21 +1893,6 @@ const handleExportCSV = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messageText })
       }).catch(err => console.log("Telegram send background error:", err));
-
-      {/*const messageText = 
-        `🚨 *มียอดแจ้งโอนเงินเข้ามาใหม่! [SmartLabel]*\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
-        `🏪 *ร้านค้า:* ${currentStoreName}\n` +
-        `📧 *อีเมล:* ${user.email || 'ไม่ระบุ'}\n` +
-        `📦 *แพ็กเกจ:* ${packageName}\n` +
-        `💰 *ยอดเงินโอน:* ฿${amountPaid.toLocaleString()}.00 บาท\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
-        `🔍 *กรุณาตรวจสอบและอนุมัติที่หน้า SuperAdmin*`;
-
-      // ใช้ยิงผ่านท่อโบราณแต่โคตรเสถียรด้วย GET/POST URL String
-      const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(messageText)}&parse_mode=Markdown`;
-      
-      await fetch(telegramUrl).catch(err => console.log("Telegram send background error:", err));*/}
 
       alert("🚀 ส่งหลักฐานการชำระเงินสำเร็จเรียบร้อย! ระบบกำลังตรวจสอบสลิปค่ะ");
       setIsTopupOpen(false);
