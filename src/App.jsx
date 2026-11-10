@@ -1279,53 +1279,51 @@ SmartLabel ยินดีให้บริการครับ ✅
   };
 
   // ==========================================
-  // 💾 🖨️ ฟังก์ชันบันทึกและสั่งพิมพ์ (ฉบับสมบูรณ์ รองรับ Bluetooth/USB และ Windows)
+  // 💾 🖨️ ฟังก์ชันบันทึกและสั่งพิมพ์ (ฉบับ Clean Flow - แก้บั๊ก 404 และ Permission 100%)
   // ==========================================
   const handleSaveAndPrint = async () => {
-    // 1. แยกออเดอร์ใหม่ที่ยังไม่เคยเซฟ
+    // 1. กรองเฉพาะออเดอร์ใหม่ที่ต้องบันทึก (ยังไม่เคยถูกเซฟ และมีข้อความที่อยู่)
     const newOrdersToSave = orders.filter(o => o.parsedData && !o.isSaved && o.rawText.trim() !== '');
     
-    // 🛡️ ค่ายกลตรวจจับวันที่และคำนวณราคาขั้นบันได (ทำงานเฉพาะ Owner และไม่ใช่แพ็กเกจพรีเมียมแบบเหมา)
+    // 2. คำนวณยอดเงินที่ต้องหัก
     let costToPay = 0;
     let todayStr = getThaiDateString();
     let currentCountForToday = (lastPrintDate === todayStr) ? dailyPrintedCount : 0;
     
+    // ถ้าเป็นเถ้าแก่และไม่ใช่ Premium ต้องคำนวณเงิน
     if (userRole === 'Owner' && storeProfile?.plan !== 'Premium') {
       costToPay = calculatePrintCost(currentCountForToday, newOrdersToSave.length);
       
-      // ถ้ายอดเงินในกระเป๋าไม่พอจ่ายค่าจ่าหน้า
+      // ถ้าเงินไม่พอ เบรกการทำงานทั้งหมด
       if (balance < costToPay) {
         alert(`⚠️ ยอดเงินไม่พอครับ! ค่าบริการสำหรับออเดอร์ใหม่ ${newOrdersToSave.length} ใบ คือ ฿${costToPay} แต่คุณมีเงิน ฿${balance.toFixed(2)}`);
         setIsTopupOpen(true);
-        return; // สั่งเบรก ไม่บันทึก ไม่พิมพ์ใดๆ ทั้งสิ้น
+        return; 
       }
     }
 
-    let processedOrders = [...orders]; // ตัวแปรเก็บออเดอร์พร้อมพิมพ์ (ทั้งใหม่และเก่าผสมกัน)
+    let processedOrders = [...orders]; 
 
     try {
-      // 🟢 ภาคที่ 1: บันทึกข้อมูล ดึงเลขพัสดุ และตัดโควต้า (สำหรับออเดอร์ใหม่)
+      // 🟢 ภาคที่ 1: บันทึกออเดอร์ใหม่ลงตาราง orders
       if (newOrdersToSave.length > 0) {
-        const thpToken = selectedCarrier === 'THP' ? await getTHPToken() : null;
-        processedOrders = []; // ล้างค่าเพื่อจัดเรียงใหม่พร้อมเลขพัสดุ
+        processedOrders = []; // ล้างค่าตะกร้าเพื่อเรียงใหม่
 
         for (const order of orders) {
           if (order.parsedData && !order.isSaved && !order.trackingNum) {
             let autoTracking = "";
 
-            // 🚚 ดึงเลขพัสดุไปรษณีย์ไทย
+            // 🔥 ดึงเลขพัสดุ (เราจะดึงแค่จากระบบจำลอง หรือ คลังส่วนกลางไปก่อน ป้องกัน API ไปรษณีย์ไทยล่ม)
             if (selectedCarrier === 'THP') {
               autoTracking = await getBarcodeFromPool();
               if (!autoTracking) {
-                console.log("⚠️ เลขพัสดุในคลังหมด! ระบบสลับไปใช้ API/สุ่มเลขสำรองอัตโนมัติ");
+                console.log("⚠️ เลขพัสดุในคลังหมด! ระบบสลับไปสร้างเลขสำรอง");
+                // ใช้ฟังก์ชันดึงเลขสำรองที่เราทำไว้
                 autoTracking = await fetchRealTrackingFromTHP('1'); 
-              }
-              if (thpToken && autoTracking) {
-                await preloadOrderToTHP(thpToken, order, autoTracking);
               }
             }
 
-            // ⚡ จัดระเบียบข้อมูล Payload
+            // สร้างก้อนข้อมูลออเดอร์
             const orderPayload = {
               customerName: order.parsedData.customerName || "ไม่ระบุชื่อ",
               phone: order.parsedData.phone || "ไม่ระบุเบอร์",
@@ -1346,32 +1344,30 @@ SmartLabel ยินดีให้บริการครับ ✅
               createdAt: serverTimestamp()
             };
 
-            // 💾 บันทึกลงฐานข้อมูล Firestore
-            await addDoc(collection(db, "orders"), orderPayload);
+            // 💾 บันทึกลงตาราง orders ครั้งเดียวจบ
+            const docRef = await addDoc(collection(db, "orders"), orderPayload);
 
-            // เก็บใส่ตะกร้าออเดอร์ที่พร้อมพิมพ์
-            processedOrders.push({ ...order, trackingNum: autoTracking, isSaved: true });
+            // เอาใส่ตะกร้าเตรียมแสดงผล (มาร์คว่าเซฟแล้ว)
+            processedOrders.push({ ...order, id: docRef.id, trackingNum: autoTracking, isSaved: true });
           } else {
-            // งานพิมพ์ซ้ำ (ที่เคยเซฟแล้ว) จับใส่ตะกร้าได้เลย
+            // ถ้าเป็นงานพิมพ์ซ้ำ (มี trackingNum และ isSaved = true) ก็เอาใส่ตะกร้าเลย
             processedOrders.push(order);
           }
         }
         
-        // อัปเดตหน้าจอให้แสดงเลขพัสดุ
+        // 🔄 อัปเดตหน้าจอให้เปลี่ยนจากปุ่มเซฟเป็นปุ่มลบ (แสดงสถานะ 💾 บันทึกแล้ว)
         setOrders(processedOrders);
 
-        // 💰 ตัดเงินจากกระเป๋าและอัปเดตสถิติรายวัน
+        // 💰 หักเงินและอัปเดตสถิติรายวัน ในตาราง users
         if (userRole === 'Owner') {
           const userRef = doc(db, "users", user.uid);
           
           if (storeProfile?.plan === 'Premium') {
-            // พรีเมียมเหมาจ่าย อัปเดตแค่สถิติ ไม่หักเงิน
             await updateDoc(userRef, { 
               dailyPrintedCount: currentCountForToday + newOrdersToSave.length,
               lastPrintDate: todayStr
             });
           } else if (costToPay > 0 || currentCountForToday + newOrdersToSave.length > 0) {
-            // หักเงิน Pay-As-You-Go และอัปเดตสถิติ
             await updateDoc(userRef, { 
               balance: increment(-costToPay), 
               dailyPrintedCount: currentCountForToday + newOrdersToSave.length,
@@ -1381,28 +1377,23 @@ SmartLabel ยินดีให้บริการครับ ✅
         }
       }
 
-      // 🟢 ภาคที่ 2: ดำเนินการสั่งพิมพ์ (เลือกระหว่าง Bluetooth หรือ Browser)
+      // 🟢 ภาคที่ 2: ดำเนินการสั่งพิมพ์ออกทางฮาร์ดแวร์
       const ordersToPrint = processedOrders.filter(o => o.parsedData);
       if (ordersToPrint.length === 0) return;
 
       if (bluetoothDevice || usbDevice) {
-        // -----------------------------------------------------
-        // 🖨️ โหมดที่ 1: พิมพ์ผ่าน Bluetooth / USB (Direct Print)
-        // -----------------------------------------------------
         try {
           console.log("กำลังพิมพ์ผ่าน Direct Print (Bluetooth/USB)...");
           
           for (const order of ordersToPrint) {
-            // 💡 ปรับความกว้างเป็น 384px (สำหรับเครื่องพิมพ์ 58mm) หรือ 576px (สำหรับ 80mm)
             const printerWidth = 384; 
             const canvas = document.createElement('canvas');
             canvas.width = printerWidth; 
-            // ⭐️ ปรับตัวเลขตรงนี้เผื่อความสูงกระดาษให้มากขึ้น ป้องกันเนื้อหาล้น
             const estimatedHeight = 1200 + (order.parsedData.items.length * 30);
             canvas.height = estimatedHeight;
             const ctx = canvas.getContext('2d');
 
-            // เทพื้นสีขาว
+            // วาดพื้นหลังสีขาว
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#000000';
@@ -1417,12 +1408,10 @@ SmartLabel ยินดีให้บริการครับ ✅
             ctx.fillText(`Admin: ${user?.email?.split('@')[0] || '-'}`, canvas.width - 10, y);
             ctx.textAlign = 'left';
             y += 20;
-            
             ctx.fillRect(10, y, canvas.width - 20, 2); y += 22;
 
-            // --- ข้อมูลพิเศษ (สัญญาส่งของ) & ผู้ส่ง ---
+            // --- ข้อมูลพิเศษ ---
             if (storeProfile.specialLine1) {
-                // 1. วาดกล่องคำสั่งพิเศษด้านบน กางเต็มพื้นที่
                 const boxStartX = 10;
                 const boxStartY = y;
                 let textY = y + 22;
@@ -1430,21 +1419,17 @@ SmartLabel ยินดีให้บริการครับ ✅
                 ctx.font = 'bold 14px sans-serif';
                 ctx.fillText(storeProfile.specialLine1, 15, textY);
                 textY += 12;
-                
-                // เส้นคั่นขีดล่างในกรอบ
                 ctx.fillRect(15, textY, canvas.width - 30, 1);
                 textY += 20;
 
                 ctx.font = '12px sans-serif';
                 let hasExtraInfo = false;
-                
                 if (storeProfile.specialLine2) {
                     ctx.fillText(storeProfile.specialLine2, 15, textY); 
                     textY += 18;
                     hasExtraInfo = true;
                 }
                 
-                // นำข้อมูลใบอนุญาตและสัญญามาต่อกัน
                 let contractInfo = "";
                 if (storeProfile.licenseNo) contractInfo += `เลขที่: ${storeProfile.licenseNo}   `;
                 if (storeProfile.contractNo) contractInfo += `สัญญา: ${storeProfile.contractNo}`;
@@ -1455,27 +1440,21 @@ SmartLabel ยินดีให้บริการครับ ✅
                     hasExtraInfo = true;
                 }
 
-                // ตีกรอบสี่เหลี่ยมครอบ
                 const boxHeight = textY - boxStartY + (hasExtraInfo ? 0 : -10);
                 ctx.lineWidth = 1;
                 ctx.strokeRect(boxStartX, boxStartY, canvas.width - 20, boxHeight);
-                
-                y = boxStartY + boxHeight + 15; // ดันระยะ y ลงมาเตรียมวาดผู้ส่ง
+                y = boxStartY + boxHeight + 15;
             }
 
-            // 2. วาดที่อยู่ผู้ส่ง (อยู่ด้านล่างกรอบพิเศษ หรืออยู่บนสุดถ้าไม่มีกรอบ กางเต็ม 100%)
+            // --- ผู้ส่ง ---
             ctx.font = 'bold 12px sans-serif';
-            ctx.fillText(`ผู้ส่ง:`, 10, y);
-            y += 22;
-            
+            ctx.fillText(`ผู้ส่ง:`, 10, y); y += 22;
             ctx.font = 'bold 20px sans-serif';
-            ctx.fillText(`${storeProfile.name || '-'}`, 10, y); 
-            y += 24;
+            ctx.fillText(`${storeProfile.name || '-'}`, 10, y); y += 24;
             
             if (storeProfile.phone) {
                 ctx.font = 'bold 14px sans-serif';
-                ctx.fillText(`☎ ${storeProfile.phone}`, 10, y); 
-                y += 20;
+                ctx.fillText(`☎ ${storeProfile.phone}`, 10, y); y += 20;
             }
 
             if (storeProfile.address) {
@@ -1485,7 +1464,6 @@ SmartLabel ยินดีให้บริการครับ ✅
                 for(let n = 0; n < senderWords.length; n++) {
                     const testLine = senderLine + senderWords[n] + ' ';
                     const metrics = ctx.measureText(testLine);
-                    // ตัดบรรทัดอัตโนมัติ ไม่ให้ทะลุขอบกระดาษ
                     if (metrics.width > canvas.width - 20 && n > 0) {
                         ctx.fillText(senderLine, 10, y);
                         senderLine = senderWords[n] + ' ';
@@ -1494,8 +1472,7 @@ SmartLabel ยินดีให้บริการครับ ✅
                         senderLine = testLine;
                     }
                 }
-                ctx.fillText(senderLine, 10, y); 
-                y += 25; 
+                ctx.fillText(senderLine, 10, y); y += 25; 
             } else {
                 y += 10;
             }
@@ -1518,35 +1495,32 @@ SmartLabel ยินดีให้บริการครับ ✅
             // --- ผู้รับ ---
             ctx.font = 'bold 16px sans-serif'; 
             ctx.fillText(`ผู้รับ:`, 10, y); y += 25;
-            ctx.font = 'bold 26px sans-serif'; // ขยายชื่อลูกค้าให้เด่นขึ้น
+            ctx.font = 'bold 26px sans-serif'; 
             ctx.fillText(`${order.parsedData.customerName}`, 10, y); y += 28;
-            ctx.font = 'bold 22px sans-serif'; // ขยายเบอร์โทร
+            ctx.font = 'bold 22px sans-serif'; 
             ctx.fillText(`☎ ${order.parsedData.phone}`, 10, y); y += 30;
             
-            // ⭐️ ที่อยู่ (ขยายขนาดฟอนต์เป็น 20px ตัวหนา เพื่อให้อ่านง่ายบนสติกเกอร์)
             ctx.font = 'bold 20px sans-serif'; 
             const words = order.parsedData.address.split(' ');
             let line = '';
             for(let n = 0; n < words.length; n++) {
               const testLine = line + words[n] + ' ';
               const metrics = ctx.measureText(testLine);
-              // ตัดบรรทัดเมื่อข้อความยาวเกินหน้ากระดาษ
               if (metrics.width > canvas.width - 20 && n > 0) {
                 ctx.fillText(line, 10, y);
                 line = words[n] + ' ';
-                y += 28; // ⭐️ ขยับระยะห่างบรรทัดให้พอดีกับฟอนต์ที่ใหญ่ขึ้น
+                y += 28;
               } else {
                 line = testLine;
               }
             }
-            ctx.fillText(line, 10, y); y += 40; // ดันระยะห่างก่อนถึงรหัสไปรษณีย์
+            ctx.fillText(line, 10, y); y += 40;
 
-            // --- รหัสไปรษณีย์ (ตัวใหญ่สะใจ) ---
+            // --- รหัสไปรษณีย์ ---
             ctx.font = 'bold 42px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText(order.parsedData.zipcode || '00000', canvas.width / 2, y);
             y += 35;
-
             ctx.fillRect(10, y, canvas.width - 20, 2); y += 25;
 
             // --- เลขพัสดุ & QR Code ---
@@ -1554,43 +1528,31 @@ SmartLabel ยินดีให้บริการครับ ✅
                 ctx.font = 'bold 26px sans-serif';
                 ctx.fillText(order.trackingNum, canvas.width / 2, y);
                 y += 20;
-
-                // 📌 ดึงภาพ QR Code และวาดลง Canvas (ต้องใส่ await เพื่อรอให้ภาพโหลดเสร็จ)
                 try {
-                    const qrSize = 130; // 📏 กำหนดขนาด QR Code (ปรับขยายได้ตามต้องการ)
-                    // ใช้ API กลางสร้าง QR Code ชั่วคราวเพื่อนำมาแปะลง Canvas
+                    const qrSize = 130; 
                     const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${qrSize}x${qrSize}&data=${encodeURIComponent(order.trackingNum)}`;
-                    
                     const qrImage = new Image();
-                    qrImage.crossOrigin = "Anonymous"; // ป้องกันปัญหาลิขสิทธิ์ภาพข้ามโดเมน (Tainted Canvas)
+                    qrImage.crossOrigin = "Anonymous"; 
                     qrImage.src = qrImageUrl;
-                    
-                    // รอให้รูปโหลดเข้ามาในระบบให้เสร็จก่อน
                     await new Promise((resolve, reject) => {
                         qrImage.onload = resolve;
                         qrImage.onerror = reject;
                     });
-
-                    // วาดรูปลงตรงกลางกระดาษ
                     ctx.drawImage(qrImage, (canvas.width - qrSize) / 2, y, qrSize, qrSize);
-                    y += qrSize + 20; // ดันบรรทัดถัดไปลงมา
+                    y += qrSize + 20; 
                 } catch (err) {
                     console.warn("ไม่สามารถโหลดภาพ QR Code ได้:", err);
-                    // หากเน็ตสะดุดโหลด QR ไม่ได้ ก็ให้ข้ามไปพิมพ์ข้อความด้านล่างต่อเลย
                 }
-
                 ctx.font = 'bold 12px sans-serif';
                 ctx.fillText('THAILAND POST TRACKING (SCAN QR)', canvas.width / 2, y);
                 y += 25;
             }
-
             ctx.fillRect(10, y, canvas.width - 20, 2); y += 20;
 
             // --- รายการสินค้า & REF ---
             ctx.textAlign = 'left';
             ctx.font = 'bold 13px sans-serif';
             ctx.fillText('รายการสินค้า:', 10, y); 
-            
             ctx.textAlign = 'right';
             ctx.font = 'bold 10px sans-serif';
             ctx.fillText(`REF: #${String(order.id).slice(-6)}`, canvas.width - 10, y);
@@ -1606,22 +1568,15 @@ SmartLabel ยินดีให้บริการครับ ✅
                 ctx.fillText(`- ไม่ระบุรายการ -`, 10, y); y += 20;
             }
 
-            // ==========================================
-            // ⭐️ ครอป Canvas ให้พอดีเนื้อหา และเทพื้นขาวแก้บั๊กแถบดำ
-            // ==========================================
             const finalCanvas = document.createElement('canvas');
             finalCanvas.width = canvas.width;
-            finalCanvas.height = y + 20; // เผื่อระยะขอบล่าง
+            finalCanvas.height = y + 20; 
             const finalCtx = finalCanvas.getContext('2d');
             
-            // 1. เทสีขาวเป็นพื้นหลังก่อนเสมอ ป้องกันความโปร่งใสที่เครื่องพิมพ์จะอ่านเป็นสีดำ
             finalCtx.fillStyle = '#FFFFFF';
             finalCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
-            
-            // 2. วางภาพจ่าหน้าทั้งหมดที่วาดไว้ทับลงไป
             finalCtx.drawImage(canvas, 0, 0);
 
-            // แปลงภาพเป็น ESC/POS Byte Data ยิงเข้าเครื่องพิมพ์
             const imgData = finalCtx.getImageData(0, 0, finalCanvas.width, finalCanvas.height).data;
             const widthBytes = Math.ceil(finalCanvas.width / 8);
             const printData = [0x1B, 0x40, 0x1B, 0x61, 0x01, 0x1D, 0x76, 0x30, 0x00, widthBytes, 0, finalCanvas.height & 0xFF, (finalCanvas.height >> 8) & 0xFF];
@@ -1638,19 +1593,17 @@ SmartLabel ยินดีให้บริการครับ ✅
                 printData.push(byte);
               }
             }
-            printData.push(0x0A, 0x0A, 0x0A); // เลื่อนกระดาษออก
-
+            printData.push(0x0A, 0x0A, 0x0A); 
             await sendDataToPrinter(new Uint8Array(printData));
             await new Promise(resolve => setTimeout(resolve, 800));
           }
-
-          // พิมพ์เสร็จเคลียร์หน้าจอเตรียมกล่องใหม่
+          
+          // 🔥 พิมพ์เสร็จเคลียร์หน้าจอเตรียมกล่องใหม่ (ย้ายมาไว้นอก Loop)
           setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
           
         } catch (err) {
           console.error("Direct Print Error:", err);
-          alert("เกิดข้อผิดพลาดในการพิมพ์ผ่านบลูทูธ ระบบจะสลับไปใช้การพิมพ์ผ่านหน้าต่างเบราว์เซอร์ปกติครับ");
-          // ระบบฉุกเฉิน (Fallback): ถ้าบลูทูธหลุด จะสลับไปเปิดหน้าต่างพิมพ์ Windows ให้เลย
+          alert("เกิดข้อผิดพลาดในการพิมพ์ผ่านบลูทูธ ระบบจะสลับไปใช้หน้าต่างพิมพ์ของเบราว์เซอร์ปกติครับ");
           setTimeout(() => {
             window.print();
             setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
@@ -1658,9 +1611,7 @@ SmartLabel ยินดีให้บริการครับ ✅
         }
 
       } else {
-        // -----------------------------------------------------
-        // 🖨️ โหมดที่ 2: พิมพ์ผ่าน Browser (Windows / สาย USB เสียบคอมปกติ)
-        // -----------------------------------------------------
+        // 🖨️ โหมดที่ 2: พิมพ์ผ่าน Browser (ไม่ได้ต่อบลูทูธ)
         setTimeout(() => {
           window.print();
           setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
