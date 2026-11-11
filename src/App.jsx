@@ -1828,20 +1828,22 @@ SmartLabel ยินดีให้บริการครับ ✅
           console.log("กำลังพิมพ์ผ่าน Direct Print (Bluetooth/USB)...");
           
           for (const order of ordersToPrint) {
-            const printerWidth = 384; 
+            // 💡 ไดนามิกสเกล: อ่านค่าจากโปรไฟล์ ถ้าเลือก 80mm ให้กว้าง 576 พิกเซล, ถ้า 58mm ให้กว้าง 384 พิกเซล
+            const is80mm = storeProfile?.printerSize === '80mm';
+            const printerWidth = is80mm ? 576 : 384; 
+            
             const canvas = document.createElement('canvas');
             canvas.width = printerWidth; 
             const estimatedHeight = 1200 + (order.parsedData.items.length * 30);
             canvas.height = estimatedHeight;
             const ctx = canvas.getContext('2d');
 
+            // --- ส่วนโค้ดวาด Canvas เหมือนเดิมทั้งหมด... ---
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#000000';
-            
             let y = 35;
             
-            // --- Header ---
             ctx.font = 'bold 20px sans-serif';
             ctx.fillText(`SmartLabel ✅`, 10, y); 
             ctx.font = '14px sans-serif';
@@ -1851,7 +1853,6 @@ SmartLabel ยินดีให้บริการครับ ✅
             y += 20;
             ctx.fillRect(10, y, canvas.width - 20, 2); y += 22;
 
-            // --- ข้อมูลพิเศษ ---
             if (storeProfile.specialLine1) {
                 const boxStartX = 10;
                 const boxStartY = y;
@@ -1887,7 +1888,6 @@ SmartLabel ยินดีให้บริการครับ ✅
                 y = boxStartY + boxHeight + 15;
             }
 
-            // --- ผู้ส่ง ---
             ctx.font = 'bold 12px sans-serif';
             ctx.fillText(`ผู้ส่ง:`, 10, y); y += 22;
             ctx.font = 'bold 20px sans-serif';
@@ -1918,7 +1918,6 @@ SmartLabel ยินดีให้บริการครับ ✅
                 y += 10;
             }
             
-            // --- COD ---
             if (order.parsedData.isCOD) {
               ctx.fillStyle = '#000000';
               ctx.fillRect(10, y, canvas.width - 20, 40);
@@ -1933,7 +1932,6 @@ SmartLabel ยินดีให้บริการครับ ✅
                y += 10;
             }
 
-            // --- ผู้รับ ---
             ctx.font = 'bold 16px sans-serif'; 
             ctx.fillText(`ผู้รับ:`, 10, y); y += 25;
             ctx.font = 'bold 26px sans-serif'; 
@@ -1957,14 +1955,12 @@ SmartLabel ยินดีให้บริการครับ ✅
             }
             ctx.fillText(line, 10, y); y += 40;
 
-            // --- รหัสไปรษณีย์ ---
             ctx.font = 'bold 42px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText(order.parsedData.zipcode || '00000', canvas.width / 2, y);
             y += 35;
             ctx.fillRect(10, y, canvas.width - 20, 2); y += 25;
 
-            // --- เลขพัสดุ & QR Code ---
             if (order.trackingNum) {
                 ctx.font = 'bold 26px sans-serif';
                 ctx.fillText(order.trackingNum, canvas.width / 2, y);
@@ -1990,7 +1986,6 @@ SmartLabel ยินดีให้บริการครับ ✅
             }
             ctx.fillRect(10, y, canvas.width - 20, 2); y += 20;
 
-            // --- รายการสินค้า & REF ---
             ctx.textAlign = 'left';
             ctx.font = 'bold 13px sans-serif';
             ctx.fillText('รายการสินค้า:', 10, y); 
@@ -2034,12 +2029,21 @@ SmartLabel ยินดีให้บริการครับ ✅
                 printData.push(byte);
               }
             }
-            printData.push(0x0A, 0x0A, 0x0A); 
+            
+            // 💡 ตัดกระดาษอัจฉริยะ: ตรวจสอบจากโปรไฟล์ ถ้าลูกค้าเปิดโหมดตัดกระดาษ (autoCut: true) ให้ส่งรหัสกรรไกร
+            if (storeProfile?.autoCut) {
+              printData.push(
+                0x0A, 0x0A, 0x0A, 0x0A, // เลื่อนกระดาษให้พ้นใบมีด
+                0x1D, 0x56, 0x42, 0x00  // ตัด! ✂️
+              );
+            } else {
+              printData.push(0x0A, 0x0A, 0x0A, 0x0A); // ถ้าไม่มีใบมีด ก็แค่เลื่อนกระดาษออกมารอฉีก 4 บรรทัด
+            }
+            
             await sendDataToPrinter(new Uint8Array(printData));
             await new Promise(resolve => setTimeout(resolve, 800));
           }
           
-          // 🔥 พิมพ์เสร็จเคลียร์หน้าจอเตรียมกล่องใหม่ (ย้ายมาไว้นอก Loop)
           setOrders([{ id: Date.now(), rawText: '', parsedData: null, isSaved: false }]);
           
         } catch (err) {
@@ -3030,6 +3034,43 @@ if (!user && isAuthView) {
                   </div>
                 </div>
               </div>
+            </div>
+            {/* 🖨️ 4. ตั้งค่าฮาร์ดแวร์เครื่องพิมพ์ (Printer Settings) */}
+            <div className="mt-4 p-4 bg-orange-50 border border-orange-100 rounded-2xl text-left">
+              <h3 className="text-sm font-black text-orange-700 mb-3 flex items-center gap-1">
+                🖨️ ตั้งค่าเครื่องพิมพ์ (สำหรับบลูทูธ/USB)
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* ขนาดกระดาษ */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-600 mb-1">ขนาดหน้ากว้างกระดาษ</label>
+                  <select 
+                    className="w-full border border-orange-200 bg-white p-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-300 font-bold text-slate-700"
+                    value={tempProfile.printerSize || '58mm'}
+                    onChange={(e) => setTempProfile({...tempProfile, printerSize: e.target.value})}
+                  >
+                    <option value="58mm">58 มม. (เครื่องพกพา/ขนาดเล็ก)</option>
+                    <option value="80mm">80 มม. (เครื่องตั้งโต๊ะมาตรฐาน)</option>
+                  </select>
+                </div>
+
+                {/* ระบบตัดกระดาษ */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-600 mb-1">ระบบตัดกระดาษ (Auto Cut)</label>
+                  <select 
+                    className="w-full border border-orange-200 bg-white p-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-300 font-bold text-slate-700"
+                    value={tempProfile.autoCut === true ? 'true' : 'false'}
+                    onChange={(e) => setTempProfile({...tempProfile, autoCut: e.target.value === 'true'})}
+                  >
+                    <option value="false">❌ ไม่มีใบมีด (ฉีกกระดาษเอง)</option>
+                    <option value="true">✂️ มีใบมีด (ตัดกระดาษอัตโนมัติ)</option>
+                  </select>
+                </div>
+              </div>
+              <p className="text-xs text-orange-600 mt-3 font-medium">
+                * สำหรับเครื่องพิมพ์สติ๊กเกอร์ (Label/Barcode) แนะนำให้ใช้พิมพ์ผ่านระบบปกติของ Windows (เครื่องพิมพ์เบราว์เซอร์) เพื่อให้ไดรเวอร์จัดการเซนเซอร์ช่องว่างครับ
+              </p>
             </div>
             <div className="h-5"></div>
             {/* โซนใหม่: เชื่อมต่อเพจ Facebook */}
