@@ -1279,7 +1279,7 @@ SmartLabel ยินดีให้บริการครับ ✅
   };
 
   // ==========================================
-  // 💾 🖨️ ฟังก์ชันบันทึกและสั่งพิมพ์ (ฉบับ Clean Flow - แก้บั๊ก 404 และ Permission 100%)
+  // 💾 🖨️ ฟังก์ชันบันทึกและสั่งพิมพ์ (ฉบับ Clean Flow & Real-time State)
   // ==========================================
   const handleSaveAndPrint = async () => {
     // 1. กรองเฉพาะออเดอร์ใหม่ที่ต้องบันทึก (ยังไม่เคยถูกเซฟ และมีข้อความที่อยู่)
@@ -1288,16 +1288,18 @@ SmartLabel ยินดีให้บริการครับ ✅
     // 2. คำนวณยอดเงินที่ต้องหัก
     let costToPay = 0;
     let todayStr = getThaiDateString();
-    let currentCountForToday = (lastPrintDate === todayStr) ? dailyPrintedCount : 0;
+    // 🛡️ ป้องกันบั๊ก String ต่อกัน บังคับแปลงเป็น Number เสมอ
+    let currentCountForToday = (lastPrintDate === todayStr) ? Number(dailyPrintedCount) : 0; 
     
-    // ถ้าเป็นเถ้าแก่และไม่ใช่ Premium ต้องคำนวณเงิน
-    if (userRole === 'Owner' && storeProfile?.plan !== 'Premium') {
+    // 🔥 แก้ไขบั๊ก: ให้ครอบคลุมทุก Role ในร้าน (Owner, Admin, Staff) ถ้าไม่ใช่ Premium ให้คิดเงิน
+    if (['Owner', 'Admin', 'Staff'].includes(userRole) && storeProfile?.plan !== 'Premium') {
       costToPay = calculatePrintCost(currentCountForToday, newOrdersToSave.length);
       
-      // ถ้าเงินไม่พอ เบรกการทำงานทั้งหมด
+      // ถ้าเงินร้านค้าไม่พอ เบรกการทำงานทั้งหมด
       if (balance < costToPay) {
-        alert(`⚠️ ยอดเงินไม่พอครับ! ค่าบริการสำหรับออเดอร์ใหม่ ${newOrdersToSave.length} ใบ คือ ฿${costToPay} แต่คุณมีเงิน ฿${balance.toFixed(2)}`);
-        setIsTopupOpen(true);
+        alert(`⚠️ ยอดเงินร้านค้าไม่พอครับ! ค่าบริการสำหรับออเดอร์ใหม่ ${newOrdersToSave.length} ใบ คือ ฿${costToPay} แต่กระเป๋าเงินมี ฿${Number(balance).toFixed(2)}`);
+        // ถ้าเป็น Owner ค่อยโชว์ป๊อปอัพเติมเงิน (พนักงานไม่ต้องเห็น)
+        if (userRole === 'Owner') setIsTopupOpen(true);
         return; 
       }
     }
@@ -1313,12 +1315,11 @@ SmartLabel ยินดีให้บริการครับ ✅
           if (order.parsedData && !order.isSaved && !order.trackingNum) {
             let autoTracking = "";
 
-            // 🔥 ดึงเลขพัสดุ (เราจะดึงแค่จากระบบจำลอง หรือ คลังส่วนกลางไปก่อน ป้องกัน API ไปรษณีย์ไทยล่ม)
+            // 🔥 ดึงเลขพัสดุ
             if (selectedCarrier === 'THP') {
               autoTracking = await getBarcodeFromPool();
               if (!autoTracking) {
                 console.log("⚠️ เลขพัสดุในคลังหมด! ระบบสลับไปสร้างเลขสำรอง");
-                // ใช้ฟังก์ชันดึงเลขสำรองที่เราทำไว้
                 autoTracking = await fetchRealTrackingFromTHP('1'); 
               }
             }
@@ -1350,29 +1351,35 @@ SmartLabel ยินดีให้บริการครับ ✅
             // เอาใส่ตะกร้าเตรียมแสดงผล (มาร์คว่าเซฟแล้ว)
             processedOrders.push({ ...order, id: docRef.id, trackingNum: autoTracking, isSaved: true });
           } else {
-            // ถ้าเป็นงานพิมพ์ซ้ำ (มี trackingNum และ isSaved = true) ก็เอาใส่ตะกร้าเลย
             processedOrders.push(order);
           }
         }
         
-        // 🔄 อัปเดตหน้าจอให้เปลี่ยนจากปุ่มเซฟเป็นปุ่มลบ (แสดงสถานะ 💾 บันทึกแล้ว)
+        // 🔄 อัปเดตหน้าจอให้เปลี่ยนจากปุ่มเซฟเป็นปุ่มลบ
         setOrders(processedOrders);
 
-        // 💰 หักเงินและอัปเดตสถิติรายวัน ในตาราง users
-        if (userRole === 'Owner') {
-          const userRef = doc(db, "users", user.uid);
+        // 💰 🔥 แก้ไขบั๊ก: หักเงินกระเป๋า "เถ้าแก่" เสมอ ไม่ว่าใครในร้านจะเป็นคนกดพิมพ์
+        if (['Owner', 'Admin', 'Staff'].includes(userRole) && userOwnerId) {
+          const ownerRef = doc(db, "users", userOwnerId);
           
           if (storeProfile?.plan === 'Premium') {
-            await updateDoc(userRef, { 
+            await updateDoc(ownerRef, { 
               dailyPrintedCount: currentCountForToday + newOrdersToSave.length,
               lastPrintDate: todayStr
             });
+            // 🔄 อัปเดตตัวเลขหน้าจอทันที! ป้องกันค้างที่ 0
+            setDailyPrintedCount(currentCountForToday + newOrdersToSave.length);
+            setLastPrintDate(todayStr);
           } else if (costToPay > 0 || currentCountForToday + newOrdersToSave.length > 0) {
-            await updateDoc(userRef, { 
+            await updateDoc(ownerRef, { 
               balance: increment(-costToPay), 
               dailyPrintedCount: currentCountForToday + newOrdersToSave.length,
               lastPrintDate: todayStr
             });
+            // 🔄 อัปเดตตัวเลขหน้าจอทันที! 
+            setBalance(prev => prev - costToPay);
+            setDailyPrintedCount(currentCountForToday + newOrdersToSave.length);
+            setLastPrintDate(todayStr);
           }
         }
       }
@@ -1393,7 +1400,6 @@ SmartLabel ยินดีให้บริการครับ ✅
             canvas.height = estimatedHeight;
             const ctx = canvas.getContext('2d');
 
-            // วาดพื้นหลังสีขาว
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#000000';
