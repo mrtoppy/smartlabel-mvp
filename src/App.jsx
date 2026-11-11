@@ -2366,7 +2366,12 @@ const handleExportCSV = () => {
           approvedBy: user?.email || "SuperAdmin"
         });
 
-        alert(`🎉 อนุมัติสำเร็จ! ระบบเติมแต้ม +${quotaToAdd.toLocaleString()} จ่าหน้า และปรับสถานะร้านค้าเรียบร้อยครับ`);
+        // 🔄 เปลี่ยนข้อความแจ้งเตือนให้ตรงกับระบบกระเป๋าเงิน (Balance)
+        if (amountPaid >= 1000) {
+          alert(`🎉 อนุมัติสำเร็จ! ระบบได้ปรับสถานะร้านค้านี้เป็น "Premium (ไม่อั้น 30 วัน)" และเติมเงิน ฿${amountPaid.toLocaleString()} เรียบร้อยครับ 💎`);
+        } else {
+          alert(`🎉 อนุมัติสำเร็จ! ระบบได้เติมเงินเข้ากระเป๋าร้านค้าจำนวน ฿${amountPaid.toLocaleString()} เรียบร้อยครับ 💰`);
+        }
       } else {
         alert("❌ ไม่พบข้อมูลบัญชีผู้ใช้ร้านค้านี้ในระบบ Firestore ถัง users ครับ");
       }
